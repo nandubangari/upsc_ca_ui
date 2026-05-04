@@ -6,6 +6,7 @@ class ProfileData {
   final Set<int> repetitionDays;
   final List<int> availableDays;
   final int? themeColorValue; // Added to sync theme color
+  final DateTime? examDate; // Target exam date for countdown
 
   ProfileData({
     required this.name,
@@ -15,6 +16,7 @@ class ProfileData {
     required this.repetitionDays,
     required this.availableDays,
     this.themeColorValue,
+    this.examDate,
   });
 
   factory ProfileData.fromJson(Map<String, dynamic> json) {
@@ -26,6 +28,7 @@ class ProfileData {
       repetitionDays: Set<int>.from(json['repetitionDays'] as List),
       availableDays: List<int>.from(json['availableDays'] as List),
       themeColorValue: json['themeColorValue'] as int?,
+      examDate: json['examDate'] != null ? DateTime.parse(json['examDate'] as String) : null,
     );
   }
 
@@ -38,6 +41,7 @@ class ProfileData {
       'repetitionDays': repetitionDays.toList(),
       'availableDays': availableDays,
       'themeColorValue': themeColorValue,
+      'examDate': examDate?.toIso8601String(),
     };
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/dashboard_data.dart';
+import '../models/profile_data.dart';
 import '../services/dashboard_service.dart';
 import '../services/synced_dashboard_service.dart';
 import '../services/sync/vajiram_sync_service.dart';
@@ -7,6 +8,7 @@ import '../services/sync/vision_sync_service.dart';
 import '../services/sync/next_ias_sync_service.dart';
 import '../services/sync/insights_ias_sync_service.dart';
 import '../services/profile_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class DashboardProvider with ChangeNotifier {
   DashboardData? _data;
@@ -119,6 +121,33 @@ class DashboardProvider with ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// Updates the target exam date.
+  Future<void> updateExamDate(DateTime date) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final profile = await ProfileService().getProfile();
+      if (profile != null) {
+        final updatedProfile = ProfileData(
+          name: profile.name,
+          startDate: profile.startDate,
+          articleSources: profile.articleSources,
+          quizSources: profile.quizSources,
+          repetitionDays: profile.repetitionDays,
+          availableDays: profile.availableDays,
+          themeColorValue: profile.themeColorValue,
+          examDate: date,
+        );
+        
+        await ProfileService().saveProfileToCloud(user.uid, updatedProfile);
+        await loadDashboardData();
+      }
+    } catch (e) {
+      print("Error updating exam date: $e");
     }
   }
 }

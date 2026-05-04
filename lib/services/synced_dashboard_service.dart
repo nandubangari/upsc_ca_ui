@@ -197,8 +197,18 @@ class SyncedDashboardService implements DashboardService {
       }
     }
 
+    // Calculate days left from exam date
+    int daysLeft = 0;
+    if (profile?.examDate != null) {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final exam = DateTime(profile!.examDate!.year, profile.examDate!.month, profile.examDate!.day);
+      daysLeft = exam.difference(today).inDays;
+      if (daysLeft < 0) daysLeft = 0;
+    }
+
     return DashboardData(
-      daysLeft: baseData.daysLeft,
+      daysLeft: daysLeft,
       todayTasks: todayTasks,
       notStartedTasks: notStartedTasks,
       completedTasks: completedTasks,
