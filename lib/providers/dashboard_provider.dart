@@ -7,6 +7,7 @@ import '../services/sync/vajiram_sync_service.dart';
 import '../services/sync/vision_sync_service.dart';
 import '../services/sync/next_ias_sync_service.dart';
 import '../services/sync/insights_ias_sync_service.dart';
+import '../services/sync/chahal_sync_service.dart';
 import '../services/profile_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -16,17 +17,20 @@ class DashboardProvider with ChangeNotifier {
   bool _isSyncing = false;
   String? _error;
   String? _syncStatus;
+  bool _needsVajiramLogin = false;
   DashboardService _service = SyncedDashboardService(EmptyDashboardService());
   final VajiramSyncService _vajiramSync = VajiramSyncService();
   final VisionSyncService _visionSync = VisionSyncService();
   final NextIASSyncService _nextIasSync = NextIASSyncService();
   final InsightsIASSyncService _insightsIasSync = InsightsIASSyncService();
+  final ChahalSyncService _chahalSync = ChahalSyncService();
 
   DashboardData? get data => _data;
   bool get isLoading => _isLoading;
   bool get isSyncing => _isSyncing;
   String? get error => _error;
   String? get syncStatus => _syncStatus;
+  bool get needsVajiramLogin => _needsVajiramLogin;
   DashboardService get service => _service;
 
   /// Updates the service source and reloads data.
@@ -45,24 +49,42 @@ class DashboardProvider with ChangeNotifier {
     setService(SyncedDashboardService(EmptyDashboardService()));
   }
 
+  void setNeedsVajiramLogin(bool value) {
+    _needsVajiramLogin = value;
+    notifyListeners();
+  }
+
   /// Syncs all configured article sources.
-  Future<void> syncAllArticles({bool forceRefresh = false}) async {
+  Future<void> syncAllArticles({bool forceRefresh = false, bool isRetryAfterLogin = false}) async {
     _isSyncing = true;
-    _syncStatus = forceRefresh ? 'Force refreshing sources...' : 'Starting sync...';
+    _syncStatus = isRetryAfterLogin ? 'Retrying sync after login...' : (forceRefresh ? 'Force refreshing sources...' : 'Starting sync...');
+    print('DEBUG: [DashboardProvider] syncAllArticles called (forceRefresh: $forceRefresh, isRetry: $isRetryAfterLogin)');
     notifyListeners();
 
     try {
       final profile = await ProfileService().getProfile();
       if (profile != null) {
         // Sync Vajiram
-        await _vajiramSync.syncArticles(
-          startDate: profile.startDate,
-          forceRefresh: forceRefresh,
-          onStatusUpdate: (status) {
-            _syncStatus = "[Vajiram] $status";
+        try {
+          await _vajiramSync.syncArticles(
+            startDate: profile.startDate,
+            forceRefresh: forceRefresh,
+            onStatusUpdate: (status) {
+              _syncStatus = "[Vajiram] $status";
+              notifyListeners();
+            },
+          );
+        } catch (e) {
+          if (e.toString().contains("LOGIN_REQUIRED")) {
+            _needsVajiramLogin = true;
+            _syncStatus = "[Vajiram] Login Required";
             notifyListeners();
-          },
-        );
+            // We don't rethrow here to allow other sources to sync if possible, 
+            // but we stop the Vajiram specific sync and notify UI.
+          } else {
+            rethrow;
+          }
+        }
 
         // Sync VisionIAS
         await _visionSync.syncArticles(
@@ -90,6 +112,16 @@ class DashboardProvider with ChangeNotifier {
           forceRefresh: forceRefresh,
           onStatusUpdate: (status) {
             _syncStatus = "[InsightsIAS] $status";
+            notifyListeners();
+          },
+        );
+
+        // Sync Chahal Academy
+        await _chahalSync.syncQuizzes(
+          startDate: profile.startDate,
+          forceRefresh: forceRefresh,
+          onStatusUpdate: (status) {
+            _syncStatus = "[Chahal] $status";
             notifyListeners();
           },
         );

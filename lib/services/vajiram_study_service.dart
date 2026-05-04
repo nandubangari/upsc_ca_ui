@@ -2,30 +2,82 @@ import 'dart:convert';
 import 'package:html/parser.dart' as parser;
 import 'package:http/http.dart' as http;
 import '../models/study_item_model.dart';
+import '../models/dashboard_data.dart';
 import '../core/utils/date_formatter.dart';
 
 class VajiramStudyService {
   static const String _baseUrl = "https://vajiramias.com";
   static const _headers = {
-    'x-requested-with': 'XMLHttpRequest',
-    'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
+    'user-agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
   };
+
+  /// Verifies if the current session cookies are valid by attempting to fetch the MCQ page.
+  Future<bool> verifySession(String cookies) async {
+    try {
+      // Use a more general URL that might be more resilient
+      final url = Uri.parse("$_baseUrl/daily-mcq/");
+      print('DEBUG: [Vajiram] verifySession() pinging: $url');
+      
+      Future<http.Response> performRequest() => http.get(
+        url,
+        headers: {
+          'user-agent': _headers['user-agent']!,
+          'Cookie': cookies,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Upgrade-Insecure-Requests': '1',
+        },
+      );
+
+      var response = await performRequest();
+      print('DEBUG: [Vajiram] verifySession() status: ${response.statusCode}');
+      // Log headers to see if session is being set/recognized
+      print('DEBUG: [Vajiram] verifySession() headers: ${response.headers}');
+      
+      bool isSuccess = response.statusCode == 200 && !response.body.contains("accounts/login");
+      
+      if (!isSuccess) {
+        print('DEBUG: [Vajiram] verifySession() initial check failed. Body snippet: ${response.body.length > 200 ? response.body.substring(0, 200) : response.body}');
+      }
+
+      // Retry once if we get a 200 but it still shows login (might be a race condition with cookie propagation)
+      if (!isSuccess && response.statusCode == 200 && response.body.contains("accounts/login")) {
+        print('DEBUG: [Vajiram] verifySession() found login redirect. Retrying in 1500ms...');
+        await Future.delayed(const Duration(milliseconds: 1500));
+        response = await performRequest();
+        isSuccess = response.statusCode == 200 && !response.body.contains("accounts/login");
+        print('DEBUG: [Vajiram] verifySession() retry status: ${response.statusCode}, isSuccess: $isSuccess');
+      }
+
+      if (!isSuccess) {
+        print('DEBUG: [Vajiram] verifySession() failed. Body length: ${response.body.length}');
+      }
+      return isSuccess;
+    } catch (e) {
+      print('DEBUG: [Vajiram] verifySession() error: $e');
+      return false;
+    }
+  }
 
   Future<List<DailyStudyData>> fetch({
     required int year,
     required int month,
-    int? maxPages, // Changed to optional
+    int? maxPages, 
+    String? cookies, // Added cookies
     Function(String)? onStatusUpdate,
   }) async {
-    final Map<String, List<StudyItem>> grouped = {};
+    print('DEBUG: [Vajiram] fetch() called with cookies: ${cookies != null ? "YES (length: ${cookies.length})" : "NO"}');
+    final Map<String, List<StudyItem>> groupedArticles = {};
+    final Map<String, List<QuizDetail>> groupedQuizzes = {};
     final Set<String> seenIds = {};
 
     final fYear = year.toString();
+    final fMonth = month.toString();
 
-    // Avoid duplicate fetches if padded and unpadded month are the same (e.g., month 10)
+    // 1. Fetch Articles
     final monthFormats = {
-      month.toString().padLeft(2, '0'), // Padded: e.g., "04"
-      month.toString(),                 // Unpadded: e.g., "4"
+      month.toString().padLeft(2, '0'),
+      month.toString(),
     }.toList();
 
     final endpoints = [
@@ -34,19 +86,20 @@ class VajiramStudyService {
     ];
 
     for (var endpoint in endpoints) {
-      for (var fMonth in monthFormats) {
+      for (var fm in monthFormats) {
         int page = 1;
         while (true) {
           if (maxPages != null && page > maxPages) break;
-
-          final url = Uri.parse(
-            '$_baseUrl/$endpoint/$fYear/$fMonth/?page=$page',
-          );
+          final url = Uri.parse('$_baseUrl/$endpoint/$fYear/$fm/?page=$page');
 
           try {
             print('DEBUG: [Vajiram] Requesting URL: $url');
-            onStatusUpdate?.call('Fetching $endpoint ($fMonth) Page $page...');
-            final res = await http.get(url, headers: _headers);
+            onStatusUpdate?.call('Fetching $endpoint ($fm) Page $page...');
+            final res = await http.get(url, headers: {
+              ..._headers,
+              'x-requested-with': 'XMLHttpRequest',
+              if (cookies != null) 'Cookie': cookies,
+            });
             
             if (res.statusCode != 200) {
               print('DEBUG: [Vajiram] Failed to fetch $url. Status: ${res.statusCode}');
@@ -61,45 +114,125 @@ class VajiramStudyService {
               htmlContent = res.body;
             }
 
-            if (htmlContent.isEmpty || htmlContent.trim().isEmpty) {
-              print('DEBUG: [Vajiram] Empty content for $url');
-              break;
-            }
+            if (htmlContent.isEmpty) break;
 
             final parsed = _parse(htmlContent, seenIds, endpoint);
-            print('DEBUG: [Vajiram] Found ${parsed.values.fold(0, (sum, list) => sum + list.length)} items across ${parsed.keys.length} dates on $url');
-            
-            if (parsed.isEmpty) {
-              // We only break if we can't find ANY items on page 1. 
-              // This handles cases where a middle page might be broken or empty.
-              if (page == 1) {
-                print('DEBUG: [Vajiram] No items on page 1 for $url. Stopping endpoint/month.');
-                break;
-              }
-              // If we are past page 1 and find nothing, we assume we reached the end.
-              break;
-            }
+            if (parsed.isEmpty && page == 1) break;
+            if (parsed.isEmpty) break;
 
             parsed.forEach((date, items) {
-              grouped.putIfAbsent(date, () => []).addAll(items);
+              groupedArticles.putIfAbsent(date, () => []).addAll(items);
             });
 
             await Future.delayed(const Duration(milliseconds: 100));
             page++;
           } catch (e) {
-            onStatusUpdate?.call('Error on $endpoint page $page: $e');
             break;
           }
         }
       }
     }
 
-    final keys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+    // 2. Fetch Quizzes
+    try {
+      print('DEBUG: [Vajiram] Starting quiz fetch for $year/$month...');
+      final quizData = await fetchQuizzes(year: year, month: month, cookies: cookies);
+      print('DEBUG: [Vajiram] Quiz data received: ${quizData.length} daily entries');
+      for (var daily in quizData) {
+        print('DEBUG: [Vajiram] Daily entry for ${daily.date}: ${daily.quizzes.length} quizzes');
+        groupedQuizzes[daily.date] = daily.quizzes;
+      }
+    } catch (e) {
+      print('DEBUG: [Vajiram] Error fetching quizzes: $e');
+      if (e.toString().contains("LOGIN_REQUIRED")) {
+        rethrow; // Pass up to sync service/provider
+      }
+    }
 
-    return keys.map((k) => DailyStudyData(
-      date: k, // Store raw ISO date for syncing logic, will format in UI
-      items: grouped[k]!,
+    final allDates = {...groupedArticles.keys, ...groupedQuizzes.keys}.toList()..sort((a, b) => b.compareTo(a));
+
+    return allDates.map((d) => DailyStudyData(
+      date: d,
+      items: groupedArticles[d] ?? [],
+      quizzes: groupedQuizzes[d] ?? [],
     )).toList();
+  }
+
+  Future<List<DailyStudyData>> fetchQuizzes({
+    required int year,
+    required int month,
+    String? cookies,
+  }) async {
+    final url = Uri.parse("$_baseUrl/daily-mcq/$year/$month/");
+    print('DEBUG: [Vajiram] Fetching quizzes from: $url');
+    print('DEBUG: [Vajiram] Using cookies: ${cookies != null ? "YES (length: ${cookies.length})" : "NO"}');
+
+    final response = await http.get(
+      url,
+      headers: {
+        ..._headers,
+        if (cookies != null && cookies.isNotEmpty) 'Cookie': cookies,
+      },
+    );
+
+    print('DEBUG: [Vajiram] Quiz response status: ${response.statusCode}');
+    if (cookies != null && cookies.isNotEmpty) {
+      print('DEBUG: [Vajiram] Sent cookies: ${cookies.substring(0, cookies.length > 30 ? 30 : cookies.length)}...');
+    }
+    // Log a small part of body for structural verification if it's not a 200
+    if (response.statusCode != 200) {
+      print('DEBUG: [Vajiram] Non-200 Body snippet: ${response.body.length > 200 ? response.body.substring(0, 200) : response.body}');
+    }
+
+    if (response.statusCode == 500 || response.body.contains("accounts/login")) {
+      print('DEBUG: [Vajiram] Login required detected in response body or status code');
+      throw Exception("LOGIN_REQUIRED");
+    }
+
+    return parseQuizzesFromHtml(response.body);
+  }
+
+  List<DailyStudyData> parseQuizzesFromHtml(String html) {
+    final document = parser.parse(html);
+
+    var cards = document.querySelectorAll('.mcq_card');
+    if (cards.isEmpty) {
+      print('DEBUG: [Vajiram] .mcq_card not found, trying fallback selectors...');
+      cards = document.querySelectorAll('a[href*="/daily-mcq/"][href*="test"]');
+    }
+    
+    print('DEBUG: [Vajiram] Found ${cards.length} potential quiz elements for parsing');
+    final Map<String, List<QuizDetail>> results = {};
+
+    for (var card in cards) {
+      final titleEl = card.querySelector('.mcq_card_title') ?? card;
+      if (titleEl == null) {
+        continue;
+      }
+
+      final title = titleEl.text.trim();
+      final relativeLink = card.attributes['href'] ?? '';
+      final fullLink = relativeLink.startsWith('http') ? relativeLink : "$_baseUrl$relativeLink";
+
+      // Extract date from title e.g. "04 May 2026 MCQs Test"
+      final dateMatch = RegExp(r'(\d{1,2}\s+[A-Z][a-z]+\s+\d{4})').firstMatch(title);
+      if (dateMatch != null) {
+        final dateStr = dateMatch.group(0)!;
+        final isoDate = _parseVajiramDate(dateStr);
+        if (isoDate != null) {
+          print("✅ [Vajiram] Found Quiz: $isoDate | Title: $title | Link: $fullLink");
+          results.putIfAbsent(isoDate, () => []).add(QuizDetail(
+            source: 'Vajiram',
+            title: title,
+            url: fullLink,
+            isCompleted: false,
+          ));
+        }
+      }
+    }
+
+    print('DEBUG: [Vajiram] Final quiz parsing results: ${results.length} dates processed');
+    return results.entries.map((e) => DailyStudyData(date: e.key, items: [], quizzes: e.value)).toList();
   }
 
   Map<String, List<StudyItem>> _parse(String html, Set<String> seenIds, String endpoint) {

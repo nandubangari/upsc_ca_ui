@@ -6,6 +6,7 @@ import '../providers/dashboard_provider.dart';
 import '../services/auth_service.dart';
 import 'day_detail_screen.dart';
 import 'profile_setup_screen.dart';
+import 'vajiram_login_page.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -27,6 +28,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, child) {
+        // Handle Vajiram Login Required
+        if (provider.needsVajiramLogin) {
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            provider.setNeedsVajiramLogin(false); // Reset to avoid loop
+            final cookies = await Navigator.push<String>(
+              context,
+              MaterialPageRoute(builder: (context) => const VajiramLoginPage()),
+            );
+            if (cookies != null) {
+              print('DEBUG: [Dashboard] Login successful, initiating retry sync...');
+              // Retry sync after login
+              provider.syncAllArticles(forceRefresh: true, isRetryAfterLogin: true);
+            } else {
+              print('DEBUG: [Dashboard] Login canceled or failed (no cookies returned)');
+            }
+          });
+        }
+
         if (provider.isLoading) {
           return Scaffold(
             body: Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary)),

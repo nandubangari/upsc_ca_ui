@@ -12,7 +12,7 @@ class AppConstants {
     'Vajiram',
     'VisionIAS',
     'NextIAS',
-    'ChahalIAS',
+    'Chahal Academy',
     'InsightsIAS',
     'Drishti IAS',
   ];

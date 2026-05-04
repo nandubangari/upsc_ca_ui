@@ -7,6 +7,7 @@ import 'sync/vajiram_sync_service.dart';
 import 'sync/vision_sync_service.dart';
 import 'sync/next_ias_sync_service.dart';
 import 'sync/insights_ias_sync_service.dart';
+import 'sync/chahal_sync_service.dart';
 import 'profile_service.dart';
 import '../core/utils/date_formatter.dart';
 
@@ -17,7 +18,7 @@ class SyncedDashboardService implements DashboardService {
     VisionSyncService(),
     NextIASSyncService(),
     InsightsIASSyncService(),
-    // Add future sources here
+    ChahalSyncService(),
   ];
   final ProfileService _profileService = ProfileService();
 
@@ -37,12 +38,15 @@ class SyncedDashboardService implements DashboardService {
     final normalizedStartDate = DateTime(startDate.year, startDate.month, startDate.day);
     final startDateIso = DateFormatter.toIso(normalizedStartDate);
 
-    // 2. Fetch synced articles from all sources
+    // 2. Fetch synced articles and quizzes from all sources
     final allSyncedArticles = <String, List<StudyItem>>{};
-    int totalSyncedCount = 0;
+    final allSyncedQuizzes = <String, List<QuizDetail>>{};
+    int totalSyncedArticlesCount = 0;
+    int totalSyncedQuizzesCount = 0;
     
     for (var service in _syncServices) {
       final sourceArticles = await service.getAllSyncedArticles();
+      final sourceQuizzes = await service.getAllSyncedQuizzes();
       final String sourceName = service.sourceName;
 
       sourceArticles.forEach((date, items) {
@@ -58,14 +62,26 @@ class SyncedDashboardService implements DashboardService {
           } else {
              allSyncedArticles[date] = List<StudyItem>.from(items);
           }
-          totalSyncedCount += items.length;
+          totalSyncedArticlesCount += items.length;
+        }
+      });
+
+      sourceQuizzes.forEach((date, quizzes) {
+        if (date.compareTo(startDateIso) >= 0) {
+          if (allSyncedQuizzes.containsKey(date)) {
+            allSyncedQuizzes[date]!.addAll(quizzes);
+          } else {
+            allSyncedQuizzes[date] = List<QuizDetail>.from(quizzes);
+          }
+          totalSyncedQuizzesCount += quizzes.length;
         }
       });
     }
 
-    print('DEBUG: [Dashboard] Total raw synced articles fetched: $totalSyncedCount');
+    print('DEBUG: [Dashboard] Total raw synced articles fetched: $totalSyncedArticlesCount');
+    print('DEBUG: [Dashboard] Total raw synced quizzes fetched: $totalSyncedQuizzesCount');
 
-    // 3. Merge synced articles into the dashboard tasks
+    // 3. Merge synced articles and quizzes into the dashboard tasks
     final allTasks = <DashboardTask>[
       ...baseData.todayTasks,
       ...baseData.notStartedTasks,
@@ -79,6 +95,7 @@ class SyncedDashboardService implements DashboardService {
       taskMap[iso] = t;
     }
 
+    // Merge Articles
     allSyncedArticles.forEach((isoDate, items) {
       final appDate = DateFormatter.isoToAppDate(isoDate);
       
@@ -172,6 +189,50 @@ class SyncedDashboardService implements DashboardService {
           quizzesDone: 0,
           totalQuizzes: 0,
           articles: articleDetails,
+        );
+      }
+    });
+
+    // Merge Quizzes
+    allSyncedQuizzes.forEach((isoDate, quizzes) {
+      if (taskMap.containsKey(isoDate)) {
+        final existingTask = taskMap[isoDate]!;
+        
+        final Map<String, QuizDetail> mergedQuizzes = {
+          for (var q in existingTask.quizzes) q.title: q
+        };
+
+        for (var incoming in quizzes) {
+          if (!mergedQuizzes.containsKey(incoming.title)) {
+            mergedQuizzes[incoming.title] = incoming;
+          }
+        }
+
+        final finalQuizzes = mergedQuizzes.values.toList();
+        
+        taskMap[isoDate] = DashboardTask(
+          date: existingTask.date,
+          articlesDone: existingTask.articlesDone,
+          totalArticles: existingTask.totalArticles,
+          quizzesDone: existingTask.quizzesDone,
+          totalQuizzes: finalQuizzes.length,
+          type: existingTask.type,
+          dueDays: existingTask.dueDays,
+          lastCompleted: existingTask.lastCompleted,
+          repetitions: existingTask.repetitions,
+          quizzes: finalQuizzes,
+          articles: existingTask.articles,
+        );
+      } else {
+        final appDate = DateFormatter.isoToAppDate(isoDate);
+        taskMap[isoDate] = DashboardTask(
+          date: appDate,
+          articlesDone: 0,
+          totalArticles: 0,
+          quizzesDone: 0,
+          totalQuizzes: quizzes.length,
+          quizzes: quizzes,
+          articles: [],
         );
       }
     });

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/study_item_model.dart';
+import '../../models/dashboard_data.dart';
 
 abstract class BaseSyncService {
   final String sourceName;
@@ -64,22 +65,37 @@ abstract class BaseSyncService {
           onStatusUpdate: onStatusUpdate
         );
         
-        print('DEBUG: [$sourceName] Network fetch returned ${netData.fold(0, (sum, day) => sum + day.items.length)} total items for ${currentMonth.year}/${currentMonth.month}');
+        // CRITICAL FIX: Only proceed with merge/save if we actually got data.
+        // If netData is empty (e.g. fetch failed), we DO NOT want to call _mergeAndSave
+        // especially with forceRefresh, because it would wipe out existing Firestore data.
+        if (netData.isEmpty) {
+          print('DEBUG: [$sourceName] No data received from network/cache for ${currentMonth.year}/${currentMonth.month}. Skipping save to preserve existing Firestore data.');
+        } else {
+          print('DEBUG: [$sourceName] Network fetch returned ${netData.length} daily entries for ${currentMonth.year}/${currentMonth.month}');
 
-        // Ensure we ONLY save data that is on or after the startDate
-        final filteredNetData = netData.where((d) {
-          final itemDate = DateTime.tryParse(d.date);
-          if (itemDate == null) return false;
-          
-          final normalizedItemDate = DateTime(itemDate.year, itemDate.month, itemDate.day);
-          final normalizedStartDate = DateTime(startDate.year, startDate.month, startDate.day);
-          
-          return normalizedItemDate.isAtSameMomentAs(normalizedStartDate) || 
-                 normalizedItemDate.isAfter(normalizedStartDate);
-        }).toList();
+          // Ensure we ONLY save data (articles AND quizzes) that is on or after the startDate
+          final filteredNetData = netData.map((d) {
+            final itemDate = DateTime.tryParse(d.date);
+            if (itemDate == null) return d;
+            
+            final normalizedItemDate = DateTime(itemDate.year, itemDate.month, itemDate.day);
+            final normalizedStartDate = DateTime(startDate.year, startDate.month, startDate.day);
+            final normalizedNow = DateTime(now.year, now.month, now.day);
+            
+            bool isWithinRange = (normalizedItemDate.isAtSameMomentAs(normalizedStartDate) || 
+                                 normalizedItemDate.isAfter(normalizedStartDate)) &&
+                                (normalizedItemDate.isAtSameMomentAs(normalizedNow) || 
+                                 normalizedItemDate.isBefore(normalizedNow));
 
-        // 3. Merge and Save
-        await _mergeAndSave(user.uid, currentMonth.year, currentMonth.month, existingData, filteredNetData, forceRefresh: forceRefresh);
+            if (!isWithinRange) {
+              return DailyStudyData(date: d.date, items: [], quizzes: []);
+            }
+            return d;
+          }).where((d) => d.items.isNotEmpty || d.quizzes.isNotEmpty).toList();
+
+          // 3. Merge and Save
+          await _mergeAndSave(user.uid, currentMonth.year, currentMonth.month, existingData, filteredNetData, forceRefresh: forceRefresh);
+        }
       }
 
       // Move to next month
@@ -123,6 +139,15 @@ abstract class BaseSyncService {
     int addedCount = 0;
     int updatedCount = 0;
     int duplicateCount = 0;
+
+    final docId = '${year}_${month.toString().padLeft(2, '0')}';
+    final monthRef = _db
+        .collection('users')
+        .doc(uid)
+        .collection('synced_articles')
+        .doc(sourceId)
+        .collection('months')
+        .doc(docId);
 
     if (forceRefresh) {
       // If force refreshing, we want to clear the specific dates we just fetched 
@@ -188,25 +213,34 @@ abstract class BaseSyncService {
         }
       }
       existing[date] = existingItems;
+
+      // Handle Quizzes
+      if (daily.quizzes.isNotEmpty) {
+        changed = true;
+        print('DEBUG: [$sourceName] Saving ${daily.quizzes.length} quizzes for $date');
+        // Quizzes are stored in a separate collection for easier status tracking
+        final quizBatch = _db.batch();
+        for (var quiz in daily.quizzes) {
+          final quizId = quiz.title.hashCode.toString();
+          final quizRef = monthRef.collection('quizzes').doc(quizId);
+          quizBatch.set(quizRef, {
+            ...quiz.toJson(),
+            'date': date,
+          }, SetOptions(merge: true));
+        }
+        await quizBatch.commit();
+      }
     }
 
     print('DEBUG: [$sourceName] Sync Results - Added: $addedCount, Updated: $updatedCount, Duplicates: $duplicateCount');
 
     if (changed || existing.isEmpty) {
-      final docId = '${year}_${month.toString().padLeft(2, '0')}';
       final Map<String, dynamic> toSave = {};
       existing.forEach((date, items) {
         toSave[date] = items.map((i) => i.toJson()).toList();
       });
 
-      await _db
-          .collection('users')
-          .doc(uid)
-          .collection('synced_articles')
-          .doc(sourceId)
-          .collection('months')
-          .doc(docId)
-          .set(toSave, SetOptions(merge: true));
+      await monthRef.set(toSave, SetOptions(merge: true));
     }
   }
 
@@ -228,12 +262,41 @@ abstract class BaseSyncService {
     for (var doc in snapshot.docs) {
       final data = doc.data();
       data.forEach((date, itemsJson) {
-        final List<dynamic> list = itemsJson;
-        final items = list.map((i) => StudyItem.fromJson(i)).toList();
-        allArticles.putIfAbsent(date, () => []).addAll(items);
+        if (itemsJson is List) {
+          final items = itemsJson.map((i) => StudyItem.fromJson(i)).toList();
+          allArticles.putIfAbsent(date, () => []).addAll(items);
+        }
       });
     }
 
     return allArticles;
+  }
+
+  /// Retrieves all synced quizzes for this source from Firestore
+  Future<Map<String, List<QuizDetail>>> getAllSyncedQuizzes() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return {};
+
+    final snapshot = await _db
+        .collection('users')
+        .doc(user.uid)
+        .collection('synced_articles')
+        .doc(sourceId)
+        .collection('months')
+        .get();
+
+    final Map<String, List<QuizDetail>> allQuizzes = {};
+
+    for (var monthDoc in snapshot.docs) {
+      final quizSnapshot = await monthDoc.reference.collection('quizzes').get();
+      for (var quizDoc in quizSnapshot.docs) {
+        final data = quizDoc.data();
+        final date = data['date'] as String;
+        final quiz = QuizDetail.fromJson(data);
+        allQuizzes.putIfAbsent(date, () => []).add(quiz);
+      }
+    }
+
+    return allQuizzes;
   }
 }

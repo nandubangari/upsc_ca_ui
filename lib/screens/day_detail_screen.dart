@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../components/gradient_background.dart';
 import '../models/dashboard_data.dart';
 import 'article_reader_screen.dart';
+import 'common_web_view_screen.dart';
 
 class DayDetailScreen extends StatelessWidget {
   final DashboardTask task;
@@ -121,8 +122,6 @@ class DayDetailScreen extends StatelessWidget {
   }
 
   Widget _buildSourceGroup(BuildContext context, String sourceName, List<ArticleDetail> articles) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -194,7 +193,21 @@ class DayDetailScreen extends StatelessWidget {
       ),
       child: InkWell(
         onTap: () {
-          // Open Reader screen
+          if (quiz.url != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => CommonWebViewScreen(
+                  url: quiz.url!,
+                  title: quiz.title,
+                ),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No URL available for this quiz')),
+            );
+          }
         },
         borderRadius: BorderRadius.circular(16),
         child: Padding(
