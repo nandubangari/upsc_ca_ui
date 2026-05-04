@@ -1,0 +1,16 @@
+{
+  "name": "Nandhu J Kumar",
+  "startDate": "2026-04-03T00:00:00Z",
+  "articleSources": {
+    "Vision IAS": true,
+    "Vajiram & Ravi": true,
+    "InsightsIAS": true
+  },
+  "quizSources": {
+    "Drishti IAS": true,
+    "Forum IAS": false,
+    "Civils Daily": true
+  },
+  "repetitionDays": [5, 10, 15, 20],
+  "availableDays": [5, 10, 15, 20, 30, 45, 60]
+}

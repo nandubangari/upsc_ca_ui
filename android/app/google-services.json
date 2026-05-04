@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "64937910786",
+    "project_id": "prelims-prep-ca",
+    "storage_bucket": "prelims-prep-ca.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:64937910786:android:90122e4e51c27245857d1b",
+        "android_client_info": {
+          "package_name": "com.nandu.upsc_ca_ui"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "64937910786-q83rrrmqe7itiohi0g6l3ueh6g7234sh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nandu.upsc_ca_ui",
+            "certificate_hash": "d25848abe05525f413e4f01067f94e675fba002e"
+          }
+        },
+        {
+          "client_id": "64937910786-ub74g0uf1etk2p1ksuj169appfqgafe9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_qJZQP9AmIOO-A8oXBv199STxtn8_3WI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "64937910786-ub74g0uf1etk2p1ksuj169appfqgafe9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "64937910786-d5124r99ljvv3m16f68hl9qrm71t537f.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.nandu.upscCaUi"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,143 @@
+{
+  "daysLeft": 45,
+  "todayTasks": [
+    {
+      "date": "03/05/2026",
+      "articlesDone": 2,
+      "totalArticles": 4,
+      "quizzesDone": 1,
+      "totalQuizzes": 6,
+      "type": "normal",
+      "quizzes": [
+        { "source": "Vision IAS", "title": "Daily Quiz", "isCompleted": true },
+        { "source": "Vajiram IAS", "title": "Current Affairs Quiz", "isCompleted": false },
+        { "source": "Insight on India", "title": "Static Quiz", "isCompleted": false },
+        { "source": "CivilsDaily", "title": "Editorial Quiz", "isCompleted": false },
+        { "source": "IASBaba", "title": "TLP Quiz", "isCompleted": false },
+        { "source": "ForumIAS", "title": "Factly Quiz", "isCompleted": false }
+      ],
+      "articles": [
+        { "title": "India’s Foreign Policy — Analysis", "isCompleted": true, "url": "https://vajiramias.com/current-affairs/mount-dukono/69f5d4bb6604c274ea2fe4f6/" },
+        { "title": "Korowai Tribe", "isCompleted": false, "url": "https://vajiramias.com/current-affairs/korowai-tribe/69f5d3b16604c274f9c4be96/" },
+        { "title": "What is Leprosy?", "isCompleted": false, "url": "https://vajiramias.com/current-affairs/what-is-leprosy/69f5d3206604c274fc5b0ec2/" },
+        { "title": "G20 Summit and Global South", "isCompleted": false }
+      ]
+    },
+    {
+      "date": "02/05/2026",
+      "articlesDone": 1,
+      "totalArticles": 14,
+      "quizzesDone": 2,
+      "totalQuizzes": 6,
+      "type": "normal",
+      "quizzes": [
+        { "source": "Vision IAS", "title": "Daily Quiz", "isCompleted": true },
+        { "source": "Vajiram IAS", "title": "Current Affairs Quiz", "isCompleted": true },
+        { "source": "Insight on India", "title": "Static Quiz", "isCompleted": false },
+        { "source": "CivilsDaily", "title": "Editorial Quiz", "isCompleted": false },
+        { "source": "IASBaba", "title": "TLP Quiz", "isCompleted": false },
+        { "source": "ForumIAS", "title": "Factly Quiz", "isCompleted": false }
+      ],
+      "articles": [
+        { "title": "Article 1", "isCompleted": true },
+        { "title": "Article 2", "isCompleted": false },
+        { "title": "Article 3", "isCompleted": false },
+        { "title": "Article 4", "isCompleted": false },
+        { "title": "Article 5", "isCompleted": false },
+        { "title": "Article 6", "isCompleted": false },
+        { "title": "Article 7", "isCompleted": false },
+        { "title": "Article 8", "isCompleted": false },
+        { "title": "Article 9", "isCompleted": false },
+        { "title": "Article 10", "isCompleted": false },
+        { "title": "Article 11", "isCompleted": false },
+        { "title": "Article 12", "isCompleted": false },
+        { "title": "Article 13", "isCompleted": false },
+        { "title": "Article 14", "isCompleted": false }
+      ]
+    },
+    {
+      "date": "02/04/2026",
+      "articlesDone": 0,
+      "totalArticles": 14,
+      "quizzesDone": 0,
+      "totalQuizzes": 6,
+      "type": "revision",
+      "dueDays": 20,
+      "quizzes": [
+        { "source": "Vision IAS", "title": "Monthly Revision", "isCompleted": false },
+        { "source": "Vajiram IAS", "title": "Sectional Quiz", "isCompleted": false }
+      ],
+      "articles": [
+        { "title": "Revision Article 1", "isCompleted": false },
+        { "title": "Revision Article 2", "isCompleted": false }
+      ]
+    }
+  ],
+  "notStartedTasks": [
+    {
+      "date": "03/04/2026",
+      "articlesDone": 0,
+      "totalArticles": 4,
+      "quizzesDone": 0,
+      "totalQuizzes": 6,
+      "type": "normal",
+      "quizzes": [],
+      "articles": []
+    },
+    {
+      "date": "02/04/2026",
+      "articlesDone": 0,
+      "totalArticles": 4,
+      "quizzesDone": 0,
+      "totalQuizzes": 6,
+      "type": "normal",
+      "quizzes": [],
+      "articles": []
+    }
+  ],
+  "completedTasks": [
+    {
+      "date": "01/04/2026",
+      "articlesDone": 2,
+      "totalArticles": 2,
+      "quizzesDone": 6,
+      "totalQuizzes": 6,
+      "type": "normal",
+      "lastCompleted": "01/04/2026",
+      "repetitions": [
+        {
+          "number": 1,
+          "date": "2026-04-01T00:00:00Z",
+          "totalQuestions": 25,
+          "attempted": 20,
+          "notAttempted": 5,
+          "correct": 15,
+          "wrong": 5,
+          "totalMarks": 100
+        },
+        {
+          "number": 2,
+          "date": "2026-04-05T00:00:00Z",
+          "totalQuestions": 25,
+          "attempted": 23,
+          "notAttempted": 2,
+          "correct": 21,
+          "wrong": 2,
+          "totalMarks": 100
+        }
+      ],
+      "quizzes": [
+        { "source": "Vision IAS", "title": "Daily Quiz", "isCompleted": true },
+        { "source": "Vajiram IAS", "title": "Current Affairs Quiz", "isCompleted": true },
+        { "source": "Insight on India", "title": "Static Quiz", "isCompleted": true },
+        { "source": "CivilsDaily", "title": "Editorial Quiz", "isCompleted": true },
+        { "source": "IASBaba", "title": "TLP Quiz", "isCompleted": true },
+        { "source": "ForumIAS", "title": "Factly Quiz", "isCompleted": true }
+      ],
+      "articles": [
+        { "title": "Completed Article 1", "isCompleted": true },
+        { "title": "Completed Article 2", "isCompleted": true }
+      ]
+    }
+  ]
+}
