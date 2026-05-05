@@ -37,7 +37,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               MaterialPageRoute(builder: (context) => const VajiramLoginPage()),
             );
             if (cookies != null) {
-              print('DEBUG: [Dashboard] Vajiram login successful, initiating retry sync...');
+              debugPrint('DEBUG: [Dashboard] Vajiram login successful, initiating retry sync...');
               provider.syncAllArticles(forceRefresh: true, isRetryAfterLogin: true);
             }
           });

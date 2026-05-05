@@ -5,6 +5,9 @@ class ArticleContent {
   final String? imageUrl;
   final List<ContentBlock> content;
   final SourceInfo? source;
+  final List<String>? tags;
+  final List<String>? summary;
+  final List<String>? sources;
 
   ArticleContent({
     required this.title,
@@ -13,6 +16,9 @@ class ArticleContent {
     this.imageUrl,
     required this.content,
     this.source,
+    this.tags,
+    this.summary,
+    this.sources,
   });
 }
 
@@ -31,12 +37,21 @@ class ContentBlock {
   final dynamic data; 
   // data:
   // - List<InlineSpanData> for p
-  // - String for h2, h3, image
+  // - String for h2, h3
   // - List<ListItem> for ul
   // - List<List<String>> for table
   // - List<ContentBlock> for callout
+  // - ImageData for image
 
   ContentBlock({required this.type, required this.data});
+}
+
+class ImageData {
+  final String url;
+  final double? width;
+  final double? height;
+
+  ImageData({required this.url, this.width, this.height});
 }
 
 class ListItem {

@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:html/parser.dart' as parser;
 import 'package:http/http.dart' as http;
 import '../models/study_item_model.dart';
@@ -37,14 +38,14 @@ class ChahalStudyService {
 
       DateTime quizDate = data['dateObj'] as DateTime;
       if (quizDate.isBefore(targetStartDate)) {
-        print("DEBUG: [Chahal] Reached before target start date ($targetStartDate) -> STOP backward");
+        debugPrint("DEBUG: [Chahal] Reached before target start date ($targetStartDate) -> STOP backward");
         break;
       }
 
       final String isoDate = DateFormatter.toIso(quizDate);
       // Only include if it matches the requested year/month
       if (quizDate.year == year && quizDate.month == month) {
-        print("✅ [Chahal] Found Quiz: $isoDate | Title: ${data['title']} | Link: ${data['url']}");
+        debugPrint("✅ [Chahal] Found Quiz: $isoDate | Title: ${data['title']} | Link: ${data['url']}");
         groupedQuizzes.putIfAbsent(isoDate, () => []).add(QuizDetail(
           source: 'Chahal Academy',
           title: data['title'],
@@ -65,7 +66,7 @@ class ChahalStudyService {
 
       // Stop if redirected to homepage
       if (response.request?.url.toString() == "https://chahalacademy.com/") {
-        print("DEBUG: [Chahal] Redirected to homepage -> STOP forward at ID $id");
+        debugPrint("DEBUG: [Chahal] Redirected to homepage -> STOP forward at ID $id");
         break;
       }
 
@@ -76,7 +77,7 @@ class ChahalStudyService {
       final String isoDate = DateFormatter.toIso(quizDate);
       
       if (quizDate.year == year && quizDate.month == month) {
-        print("✅ [Chahal] Found Quiz (Forward): $isoDate | Title: ${data['title']} | Link: ${data['url']}");
+        debugPrint("✅ [Chahal] Found Quiz (Forward): $isoDate | Title: ${data['title']} | Link: ${data['url']}");
         groupedQuizzes.putIfAbsent(isoDate, () => []).add(QuizDetail(
           source: 'Chahal Academy',
           title: data['title'],
@@ -103,7 +104,7 @@ class ChahalStudyService {
       }
       return _parseHtml(response.body, id);
     } catch (e) {
-      print("DEBUG: [Chahal] Error fetching ID $id: $e");
+      debugPrint("DEBUG: [Chahal] Error fetching ID $id: $e");
       return null;
     }
   }

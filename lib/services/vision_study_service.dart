@@ -73,7 +73,15 @@ class VisionStudyService {
 
         print('DEBUG: [Vision] Extracted article title: "$title" for URL: $href');
 
-        final fullUrl = href.startsWith('http') ? href : '$_baseUrl$href';
+        String fullUrl;
+        if (href.startsWith('http')) {
+          fullUrl = href;
+        } else if (href.startsWith('#')) {
+          // If it's a fragment link, prepend the base page URL
+          fullUrl = "$_baseUrl/current-affairs/news-today/$isoDate$href";
+        } else {
+          fullUrl = "$_baseUrl$href";
+        }
 
         items.add(StudyItem(
           title: title,

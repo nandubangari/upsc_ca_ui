@@ -6,7 +6,7 @@ import 'base_article_extractor.dart';
 
 class InsightsIASArticleExtractor implements BaseArticleExtractor {
   @override
-  Future<ArticleContent> fetchAndParse(String url) async {
+  Future<List<ArticleContent>> fetchAndParse(String url) async {
     final response = await http.get(
       Uri.parse(url),
       headers: {
@@ -70,7 +70,7 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
         final src = img?.attributes['src'] ?? "";
 
         if (src.isNotEmpty) {
-          contentBlocks.add(ContentBlock(type: ContentBlockType.image, data: src));
+          contentBlocks.add(ContentBlock(type: ContentBlockType.image, data: ImageData(url: src)));
           if (caption.isNotEmpty) {
             contentBlocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(_cleanText(caption))]));
           }
@@ -122,12 +122,12 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
       }
     }
 
-    return ArticleContent(
+    return [ArticleContent(
       title: title,
       subtitle: subject,
       content: contentBlocks,
       source: SourceInfo(text: sourceText, url: url),
-    );
+    )];
   }
 
   void _parseTable(dom.Element table, List<ContentBlock> blocks) {
@@ -202,12 +202,12 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
     return cleaned.replaceAll(RegExp(r'[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F191}-\u{1F251}\u{1F004}\u{1F0CF}\u{1F170}-\u{1F171}\u{1F17E}-\u{1F17F}\u{1F18E}\u{3030}\u{2B50}\u{2B55}\u{2934}-\u{2935}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{3297}\u{3299}\u{303D}\u{00A9}\u{00AE}\u{2122}\u{231A}-\u{231B}\u{2328}\u{23CF}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{24C2}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2600}-\u{2604}\u{260E}\u{2611}\u{2614}-\u{2615}\u{2618}\u{261D}\u{2620}\u{2622}-\u{2623}\u{2626}\u{262A}\u{262E}-\u{262F}\u{2638}-\u{263A}\u{2640}\u{2642}\u{2648}-\u{2653}\u{265F}\u{2660}\u{2663}\u{2665}-\u{2666}\u{2668}\u{267B}\u{267E}-\u{267F}\u{2692}-\u{2697}\u{2699}\u{269B}-\u{269C}\u{26A0}-\u{26A1}\u{26AA}-\u{26AB}\u{26B0}-\u{26B1}\u{26BD}-\u{26BE}\u{26C4}-\u{26C5}\u{26C8}\u{26CE}-\u{26CF}\u{26D1}\u{26D3}-\u{26D4}\u{26E9}-\u{26EA}\u{26F0}-\u{26F5}\u{26F7}-\u{26FA}\u{26FD}]', unicode: true), '').trim();
   }
 
-  Future<ArticleContent> _parseGeneric(dom.Document document, String url) async {
+  Future<List<ArticleContent>> _parseGeneric(dom.Document document, String url) async {
     final title = document.querySelector('h1')?.text.trim() ?? 'Untitled';
-    return ArticleContent(
+    return [ArticleContent(
       title: title,
       content: [ContentBlock(type: ContentBlockType.p, data: [InlineSpanData('InsightsIAS article content extraction in progress...')])],
       source: SourceInfo(text: 'InsightsIAS', url: url),
-    );
+    )];
   }
 }

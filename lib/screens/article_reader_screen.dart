@@ -65,7 +65,7 @@ class ArticleContentView extends StatefulWidget {
 
 class _ArticleContentViewState extends State<ArticleContentView> with AutomaticKeepAliveClientMixin {
   final ArticleParserService _parserService = ArticleParserService();
-  late Future<ArticleContent> _articleFuture;
+  late Future<List<ArticleContent>> _articleFuture;
   SelectedContent? _selectedContent;
 
   @override
@@ -75,6 +75,16 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
   void initState() {
     super.initState();
     _articleFuture = _parserService.fetchAndParseArticle(widget.url);
+  }
+
+  @override
+  void didUpdateWidget(ArticleContentView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      setState(() {
+        _articleFuture = _parserService.fetchAndParseArticle(widget.url);
+      });
+    }
   }
 
   @override
@@ -90,7 +100,7 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
 
     return Scaffold(
       backgroundColor: backgroundColor,
-      body: FutureBuilder<ArticleContent>(
+      body: FutureBuilder<List<ArticleContent>>(
         future: _articleFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -105,7 +115,7 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
               ),
             );
           } else if (snapshot.hasError) {
-            print('ERROR: [ArticleReader] Snapshot error: ${snapshot.error}');
+            debugPrint('ERROR: [ArticleReader] Snapshot error: ${snapshot.error}');
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(40.0),
@@ -135,18 +145,18 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
                 ),
               ),
             );
-          } else if (!snapshot.hasData) {
+          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const SizedBox.shrink();
           }
 
-          final article = snapshot.data!;
+          final articles = snapshot.data!;
           final isPortrait = mediaQuery.orientation == Orientation.portrait;
           final double hPadding = isPortrait ? 16.0 : 24.0;
           final topPadding = isLandscape ? 12.0 : 20.0;
 
-          final displayTitle = (article.title == 'VisionIAS Article' || article.title == 'Untitled') 
-              ? (widget.initialTitle ?? article.title) 
-              : (widget.initialTitle ?? article.title);
+          // For the main sticky title, we use the initialTitle from the dashboard
+          // or the first article's title if not available.
+          final mainDisplayTitle = widget.initialTitle ?? articles.first.title;
           
           return Scaffold(
             backgroundColor: backgroundColor,
@@ -156,7 +166,7 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
                 SliverPersistentHeader(
                   pinned: true,
                   delegate: _StickyTitleDelegate(
-                    title: displayTitle,
+                    title: mainDisplayTitle,
                     isDark: isDark,
                     isTablet: isTablet,
                     backgroundColor: backgroundColor,
@@ -171,11 +181,11 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (article.subtitle != null)
+                        if (articles.first.subtitle != null)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: Text(
-                              article.subtitle!,
+                              articles.first.subtitle!,
                               textAlign: TextAlign.left,
                               style: TextStyle(
                                 color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.7),
@@ -185,9 +195,9 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
                               ),
                             ),
                           ),
-                        if (article.date != null)
+                        if (articles.first.date != null)
                           Text(
-                            article.date!.toUpperCase(),
+                            articles.first.date!.toUpperCase(),
                             textAlign: TextAlign.left,
                             style: TextStyle(
                               color: isDark ? Colors.white38 : Colors.black38,
@@ -211,22 +221,9 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (article.imageUrl != null)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 24),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: Image.network(
-                                  article.imageUrl!,
-                                  width: double.infinity,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-                                ),
-                              ),
-                            ),
-                          ...article.content.map((block) => _buildContentBlock(context, block, isTablet)),
+                          ...articles.map((article) => _buildArticleSection(context, article, isDark, isTablet)),
                           const SizedBox(height: 60),
-                          _buildFooter(context, article, isDark),
+                          _buildFooter(context, articles.last, isDark),
                         ],
                       ),
                     ),
@@ -237,6 +234,68 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
           );
         },
       ),
+    );
+  }
+
+  Widget _buildArticleSection(BuildContext context, ArticleContent article, bool isDark, bool isTablet) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // If there are multiple articles, we show sub-titles for each
+        if (article.title.isNotEmpty && article.title != widget.initialTitle)
+          Padding(
+            padding: const EdgeInsets.only(top: 40, bottom: 20),
+            child: Text(
+              article.title,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontSize: isTablet ? 22 : 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+
+        if (article.tags != null && article.tags!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: article.tags!.map<Widget>((tag) => _buildTag(tag, isDark)).toList(),
+            ),
+          ),
+        
+        if (article.imageUrl != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(
+                article.imageUrl!,
+                width: double.infinity,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+              ),
+            ),
+          ),
+
+        if (article.summary != null && article.summary!.isNotEmpty)
+          _buildSummary(context, article.summary!, isDark, isTablet),
+
+        ...article.content.map((block) => _buildContentBlock(context, block, isTablet)),
+        
+        // Separator between articles
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40),
+          child: Center(
+            child: Container(
+              width: 80,
+              height: 1,
+              color: isDark ? Colors.white12 : Colors.black12,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -301,6 +360,24 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
               ),
             ),
           ),
+        if (article.sources != null && article.sources!.isNotEmpty)
+          ...article.sources!.map((url) => Center(
+            child: InkWell(
+              onTap: () => _launchUrl(url),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  url.length > 40 ? '${url.substring(0, 40)}...' : url,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            ),
+          )),
         const SizedBox(height: 20),
         Center(
           child: Container(
@@ -462,17 +539,36 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
         );
 
       case ContentBlockType.image:
-        final imageUrl = block.data as String;
+        final data = block.data;
+        final ImageData imageData;
+        if (data is String) {
+          imageData = ImageData(url: data);
+        } else if (data is ImageData) {
+          imageData = data;
+        } else {
+          return const SizedBox.shrink();
+        }
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 24),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Image.network(
-              imageUrl,
-              width: double.infinity,
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-            ),
+            child: (imageData.width != null && imageData.height != null)
+                ? AspectRatio(
+                    aspectRatio: imageData.width! / imageData.height!,
+                    child: Image.network(
+                      imageData.url,
+                      width: double.infinity,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                    ),
+                  )
+                : Image.network(
+                    imageData.url,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                  ),
           ),
         );
       case ContentBlockType.callout:
@@ -598,6 +694,90 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
       } catch (_) {}
     }
     return null;
+  }
+
+  Widget _buildTag(String tag, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+      ),
+      child: Text(
+        tag.toUpperCase(),
+        style: TextStyle(
+          color: isDark ? Colors.white60 : Colors.black54,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummary(BuildContext context, List<String> summary, bool isDark, bool isTablet) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 32),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.summarize_outlined, size: 14, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'EXECUTIVE SUMMARY',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...summary.map((point) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    point,
+                    style: TextStyle(
+                      color: isDark ? Colors.white.withValues(alpha: 0.8) : Colors.black.withValues(alpha: 0.75),
+                      fontSize: isTablet ? 16 : 14,
+                      height: 1.5,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )),
+        ],
+      ),
+    );
   }
 }
 

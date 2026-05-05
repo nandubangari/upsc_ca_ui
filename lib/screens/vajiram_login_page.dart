@@ -49,13 +49,13 @@ class _VajiramLoginPageState extends State<VajiramLoginPage> {
           onPageFinished: (url) async {
             if (!mounted || _isVerifying) return;
             setState(() => _isLoading = false);
-            print('DEBUG: [VajiramLoginPage] Page finished: $url');
+            debugPrint('DEBUG: [VajiramLoginPage] Page finished: $url');
             
             // Auto-detect login success if user is on a dashboard page or MCQ page
             if (!url.contains("/accounts/login/") && 
                 (url.contains("/daily-mcq/") || url.contains("/current-affairs/"))) {
               
-              print('DEBUG: [VajiramLoginPage] Success URL detected. Attempting auto-login...');
+              debugPrint('DEBUG: [VajiramLoginPage] Success URL detected. Attempting auto-login...');
               
               // Verify presence of "Logout" or other logged-in markers
               try {
@@ -68,7 +68,7 @@ class _VajiramLoginPageState extends State<VajiramLoginPage> {
                   await _scrapeQuizzesAndFinish();
                 }
               } catch (e) {
-                print('DEBUG: [VajiramLoginPage] Auto-detect error: $e');
+                debugPrint('DEBUG: [VajiramLoginPage] Auto-detect error: $e');
               }
             }
           },
@@ -94,7 +94,7 @@ class _VajiramLoginPageState extends State<VajiramLoginPage> {
       cookieStr = cookieStr.replaceAll('\\"', '"');
       return cookieStr;
     } catch (e) {
-      print('DEBUG: [VajiramLoginPage] Cookie Error: $e');
+      debugPrint('DEBUG: [VajiramLoginPage] Cookie Error: $e');
       return "";
     }
   }
@@ -104,11 +104,11 @@ class _VajiramLoginPageState extends State<VajiramLoginPage> {
     setState(() => _isVerifying = true);
 
     try {
-      print('DEBUG: [VajiramLoginPage] Manual Continue: Checking current URL and login state...');
+      debugPrint('DEBUG: [VajiramLoginPage] Manual Continue: Checking current URL and login state...');
       
       // 1. Check if we are already on a non-login page
       final currentUrl = await controller.currentUrl() ?? "";
-      print('DEBUG: [VajiramLoginPage] Current URL: $currentUrl');
+      debugPrint('DEBUG: [VajiramLoginPage] Current URL: $currentUrl');
       
       // 2. Run JS to see if user is logged in (checking for "Logout" text or profile link)
       final Object loginStateObj = await controller.runJavaScriptReturningResult(
@@ -118,7 +118,7 @@ class _VajiramLoginPageState extends State<VajiramLoginPage> {
       );
       
       final bool looksLoggedIn = loginStateObj.toString().toLowerCase() == "true";
-      print('DEBUG: [VajiramLoginPage] UI Login State check: $looksLoggedIn');
+      debugPrint('DEBUG: [VajiramLoginPage] UI Login State check: $looksLoggedIn');
 
       if (looksLoggedIn || (!currentUrl.contains("/accounts/login/") && currentUrl.contains("vajiramias.com"))) {
         // Success! User is logged in within the WebView.
@@ -131,7 +131,7 @@ class _VajiramLoginPageState extends State<VajiramLoginPage> {
         }
       }
     } catch (e) {
-      print('DEBUG: [VajiramLoginPage] Error during manual check: $e');
+      debugPrint('DEBUG: [VajiramLoginPage] Error during manual check: $e');
     } finally {
       if (mounted) setState(() => _isVerifying = false);
     }
@@ -142,30 +142,32 @@ class _VajiramLoginPageState extends State<VajiramLoginPage> {
     setState(() => _isVerifying = true);
     
     try {
-      print('DEBUG: [VajiramLoginPage] === STARTING SESSION CAPTURE ===');
+      debugPrint('DEBUG: [VajiramLoginPage] === STARTING SESSION CAPTURE ===');
       
       // 1. Capture FULL native cookies (including HttpOnly)
       final cookies = await _sessionService.getNativeCookies("https://vajiramias.com");
       if (cookies != null && cookies.isNotEmpty) {
         await _sessionService.saveCookies(cookies);
-        print('DEBUG: [VajiramLoginPage] Successfully captured native session.');
+        debugPrint('DEBUG: [VajiramLoginPage] Successfully captured native session.');
       } else {
         // Fallback to JS if native fails
         final jsCookies = await _getCookies();
         await _sessionService.saveCookies(jsCookies);
-        print('DEBUG: [VajiramLoginPage] Native capture empty. Saved JS cookies as fallback.');
+        debugPrint('DEBUG: [VajiramLoginPage] Native capture empty. Saved JS cookies as fallback.');
       }
       
-      print('DEBUG: [VajiramLoginPage] === SESSION CAPTURE COMPLETE ===');
+      debugPrint('DEBUG: [VajiramLoginPage] === SESSION CAPTURE COMPLETE ===');
       
       if (mounted) {
         // We pop and return the cookies. Dashboard will trigger a fresh sync
         // from startDate to now in the background.
         final finalCookies = await _sessionService.getCookies();
-        Navigator.pop(context, finalCookies);
+        if (mounted) {
+          Navigator.pop(context, finalCookies);
+        }
       }
     } catch (e) {
-      print('DEBUG: [VajiramLoginPage] Capture error: $e');
+      debugPrint('DEBUG: [VajiramLoginPage] Capture error: $e');
       if (mounted) Navigator.pop(context);
     }
   }

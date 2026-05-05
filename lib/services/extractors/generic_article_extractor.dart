@@ -6,7 +6,7 @@ import 'base_article_extractor.dart';
 
 class GenericArticleExtractor implements BaseArticleExtractor {
   @override
-  Future<ArticleContent> fetchAndParse(String url) async {
+  Future<List<ArticleContent>> fetchAndParse(String url) async {
     final response = await http.get(
       Uri.parse(url),
       headers: {
@@ -56,14 +56,14 @@ class GenericArticleExtractor implements BaseArticleExtractor {
       contentBlocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(description)]));
     }
 
-    return ArticleContent(
+    return [ArticleContent(
       title: title,
       date: date,
       subtitle: description != title ? description : null,
       imageUrl: imageUrl,
       content: contentBlocks,
       source: SourceInfo(text: "Original Source", url: url),
-    );
+    )];
   }
 
   String? _getMeta(dom.Document doc, String property) {

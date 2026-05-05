@@ -6,7 +6,7 @@ import 'base_article_extractor.dart';
 
 class VajiramArticleExtractor implements BaseArticleExtractor {
   @override
-  Future<ArticleContent> fetchAndParse(String url) async {
+  Future<List<ArticleContent>> fetchAndParse(String url) async {
     final response = await http.get(
       Uri.parse(url),
       headers: {
@@ -77,14 +77,14 @@ class VajiramArticleExtractor implements BaseArticleExtractor {
       );
     }
 
-    return ArticleContent(
+    return [ArticleContent(
       title: title,
       date: date,
       subtitle: subtitle?.isNotEmpty == true ? subtitle : null,
       imageUrl: imageUrl,
       content: contentBlocks,
       source: source,
-    );
+    )];
   }
 
   void _parseRootNode(dom.Node node, List<ContentBlock> blocks) {

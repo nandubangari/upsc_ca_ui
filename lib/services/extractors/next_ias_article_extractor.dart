@@ -8,7 +8,7 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
   bool _stopParsing = false;
 
   @override
-  Future<ArticleContent> fetchAndParse(String url) async {
+  Future<List<ArticleContent>> fetchAndParse(String url) async {
     _stopParsing = false;
     final response = await http.get(
       Uri.parse(url),
@@ -52,11 +52,11 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
       _parseNode(node, contentBlocks);
     }
 
-    return ArticleContent(
+    return [ArticleContent(
       title: title,
       content: contentBlocks,
       source: SourceInfo(text: 'NextIAS', url: url),
-    );
+    )];
   }
 
   void _parseNode(dom.Node node, List<ContentBlock> blocks) {
@@ -93,7 +93,7 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
       final img = element.querySelector('img');
       final src = img?.attributes['src'] ?? "";
       if (src.isNotEmpty) {
-        blocks.add(ContentBlock(type: ContentBlockType.image, data: src));
+        blocks.add(ContentBlock(type: ContentBlockType.image, data: ImageData(url: src)));
       }
     }
     // Handle Lists
@@ -116,7 +116,7 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
       if (tagName == 'figure' && element.querySelector('img') != null) {
          final src = element.querySelector('img')?.attributes['src'] ?? "";
          if (src.isNotEmpty) {
-           blocks.add(ContentBlock(type: ContentBlockType.image, data: src));
+           blocks.add(ContentBlock(type: ContentBlockType.image, data: ImageData(url: src)));
            return;
          }
       }
@@ -137,7 +137,7 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
     else if (tagName == 'img') {
       final src = element.attributes['src'] ?? "";
       if (src.isNotEmpty) {
-        blocks.add(ContentBlock(type: ContentBlockType.image, data: src));
+        blocks.add(ContentBlock(type: ContentBlockType.image, data: ImageData(url: src)));
       }
     }
   }
@@ -204,12 +204,12 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
     return text.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  Future<ArticleContent> _parseGeneric(dom.Document document, String url) async {
+  Future<List<ArticleContent>> _parseGeneric(dom.Document document, String url) async {
     final title = document.querySelector('h1')?.text.trim() ?? 'Untitled';
-    return ArticleContent(
+    return [ArticleContent(
       title: title,
       content: [ContentBlock(type: ContentBlockType.p, data: [InlineSpanData('NextIAS article content extraction in progress...')])],
       source: SourceInfo(text: 'NextIAS', url: url),
-    );
+    )];
   }
 }
