@@ -22,7 +22,7 @@ class ArticleContent {
   });
 }
 
-enum ContentBlockType { p, ul, h2, h3, table, callout, image }
+enum ContentBlockType { p, ul, h2, h3, table, callout, image, infobox }
 
 class InlineSpanData {
   final String text;
@@ -42,8 +42,23 @@ class ContentBlock {
   // - List<List<String>> for table
   // - List<ContentBlock> for callout
   // - ImageData for image
+  // - InfoBoxData for infobox
 
   ContentBlock({required this.type, required this.data});
+}
+
+class InfoBoxData {
+  final String heading;
+  final List<InfoItem> items;
+
+  InfoBoxData({required this.heading, required this.items});
+}
+
+class InfoItem {
+  final List<InlineSpanData> spans;
+  final int level;
+
+  InfoItem({required this.spans, required this.level});
 }
 
 class ImageData {

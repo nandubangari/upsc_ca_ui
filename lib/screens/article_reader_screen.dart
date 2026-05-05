@@ -154,10 +154,26 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
           final double hPadding = isPortrait ? 16.0 : 24.0;
           final topPadding = isLandscape ? 12.0 : 20.0;
 
-          // For the main sticky title, we use the initialTitle from the dashboard
-          // or the first article's title if not available.
-          final mainDisplayTitle = widget.initialTitle ?? articles.first.title;
+          // For the main sticky title, we determine the best one between the initial dashboard title 
+          // and the parsed title. We prefer the parsed one if it's more specific.
+          final mainDisplayTitle = _getBestTitle(widget.initialTitle, articles.first.title);
           
+          // Preserve the dashboard title as a subtitle if it's different from the main headline
+          String? overrideSubtitle;
+          if (widget.initialTitle != null && 
+              widget.initialTitle!.isNotEmpty && 
+              widget.initialTitle != mainDisplayTitle) {
+            overrideSubtitle = widget.initialTitle;
+          }
+
+          debugPrint('DEBUG: [ArticleReader] initialTitle: ${widget.initialTitle}');
+          debugPrint('DEBUG: [ArticleReader] parsedTitle (articles.first.title): ${articles.first.title}');
+          debugPrint('DEBUG: [ArticleReader] Main sticky title: $mainDisplayTitle');
+          debugPrint('DEBUG: [ArticleReader] Computed Subtitle: $overrideSubtitle');
+          for (int i = 0; i < articles.length; i++) {
+            debugPrint('DEBUG: [ArticleReader] Article [$i] title (sub-heading): ${articles[i].title}');
+          }
+
           return Scaffold(
             backgroundColor: backgroundColor,
             body: CustomScrollView(
@@ -181,11 +197,11 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (articles.first.subtitle != null)
+                        if (overrideSubtitle != null || articles.first.subtitle != null)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: Text(
-                              articles.first.subtitle!,
+                              overrideSubtitle ?? articles.first.subtitle!,
                               textAlign: TextAlign.left,
                               style: TextStyle(
                                 color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.7),
@@ -221,7 +237,7 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ...articles.map((article) => _buildArticleSection(context, article, isDark, isTablet)),
+                          ...articles.map((article) => _buildArticleSection(context, article, isDark, isTablet, articles)),
                           const SizedBox(height: 60),
                           _buildFooter(context, articles.last, isDark),
                         ],
@@ -237,12 +253,16 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
     );
   }
 
-  Widget _buildArticleSection(BuildContext context, ArticleContent article, bool isDark, bool isTablet) {
+  Widget _buildArticleSection(BuildContext context, ArticleContent article, bool isDark, bool isTablet, List<ArticleContent> allArticles) {
+    // For the main reader, we determine what title is currently shown in the sticky header
+    final mainDisplayTitle = _getBestTitle(widget.initialTitle, allArticles.first.title);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // If there are multiple articles, we show sub-titles for each
-        if (article.title.isNotEmpty && article.title != widget.initialTitle)
+        // But we HIDE the title if it matches the main sticky header to avoid duplication
+        if (article.title.isNotEmpty && article.title != mainDisplayTitle)
           Padding(
             padding: const EdgeInsets.only(top: 40, bottom: 20),
             child: Text(
@@ -586,7 +606,69 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
             children: innerBlocks.map((b) => _buildContentBlock(context, b, isTablet)).toList(),
           ),
         );
+      case ContentBlockType.infobox:
+        final data = block.data as InfoBoxData;
+        return _buildInfoBox(context, data, isTablet, isDark);
     }
+  }
+
+  Widget _buildInfoBox(BuildContext context, InfoBoxData data, bool isTablet, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 24),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.blueGrey.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.blueGrey.withValues(alpha: 0.1),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            data.heading,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
+              fontSize: isTablet ? 18 : 16,
+              fontWeight: FontWeight.w800,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...data.items.map((item) => _buildInfoItem(context, item, isTablet, isDark)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(BuildContext context, InfoItem item, bool isTablet, bool isDark) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: item.level * 20.0,
+        bottom: 8,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 6, right: 10),
+            child: Text(
+              item.level == 0 ? "•" : "◦",
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Expanded(
+            child: _buildRichText(context, item.spans, isTablet, isDark, 15),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildListItem(BuildContext context, ListItem item, bool isTablet, bool isDark) {
@@ -714,6 +796,27 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
         ),
       ),
     );
+  }
+
+  String _getBestTitle(String? initial, String parsed) {
+    // If parsed title exists and is NOT a generic placeholder or empty,
+    // we prefer it over the initial title from the dashboard.
+    final genericPlaceholders = [
+      'visionias article',
+      'vajiram ias article',
+      'nextias article',
+      'insightsias article',
+      'article',
+      'untitled',
+    ];
+
+    final parsedLower = parsed.toLowerCase().trim();
+
+    if (parsedLower.isNotEmpty && !genericPlaceholders.contains(parsedLower)) {
+      return parsed;
+    }
+
+    return initial ?? parsed;
   }
 
   Widget _buildSummary(BuildContext context, List<String> summary, bool isDark, bool isTablet) {
