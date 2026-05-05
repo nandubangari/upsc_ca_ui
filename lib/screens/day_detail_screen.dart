@@ -67,11 +67,11 @@ class DayDetailScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildSectionHeader(context, 'ARTICLES'),
+          ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles)),
+          const SizedBox(height: 32),
           _buildSectionHeader(context, 'QUIZZES'),
           ...quizzes.map((q) => _buildQuizCard(context, q)),
-          const SizedBox(height: 32),
-          _buildSectionHeader(context, 'ARTICLES'),
-          ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value)),
           const SizedBox(height: 40),
         ],
       ),
@@ -90,8 +90,8 @@ class DayDetailScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildSectionHeader(context, 'QUIZZES'),
-                ...quizzes.map((q) => _buildQuizCard(context, q)),
+                _buildSectionHeader(context, 'ARTICLES'),
+                ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles)),
               ],
             ),
           ),
@@ -102,8 +102,8 @@ class DayDetailScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildSectionHeader(context, 'ARTICLES'),
-                ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value)),
+                _buildSectionHeader(context, 'QUIZZES'),
+                ...quizzes.map((q) => _buildQuizCard(context, q)),
               ],
             ),
           ),
@@ -121,7 +121,7 @@ class DayDetailScreen extends StatelessWidget {
     return groups;
   }
 
-  Widget _buildSourceGroup(BuildContext context, String sourceName, List<ArticleDetail> articles) {
+  Widget _buildSourceGroup(BuildContext context, String sourceName, List<ArticleDetail> articlesInGroup, List<ArticleDetail> allArticles) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -130,14 +130,14 @@ class DayDetailScreen extends StatelessWidget {
           child: Text(
             sourceName.toUpperCase(),
             style: TextStyle(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
               fontSize: 10,
               fontWeight: FontWeight.w900,
               letterSpacing: 1.0,
             ),
           ),
         ),
-        ...articles.map((a) => _buildArticleCard(context, a)),
+        ...articlesInGroup.map((a) => _buildArticleCard(context, a, allArticles)),
         const SizedBox(height: 16),
       ],
     );
@@ -171,15 +171,15 @@ class DayDetailScreen extends StatelessWidget {
   Widget _buildQuizCard(BuildContext context, QuizDetail quiz) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardColor = isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white;
-    final borderColor = isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05);
+    final borderColor = isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: quiz.isCompleted ? cardColor.withValues(alpha: isDark ? 0.02 : 0.5) : cardColor,
+        color: quiz.isCompleted ? cardColor.withValues(alpha: 0.5) : cardColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: quiz.isCompleted ? Colors.green.withValues(alpha: 0.1) : borderColor,
+          color: quiz.isCompleted ? Colors.green.withValues(alpha: 0.5) : borderColor,
           width: 1,
         ),
         boxShadow: [
@@ -221,7 +221,7 @@ class DayDetailScreen extends StatelessWidget {
                       TextSpan(
                         text: quiz.source,
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary.withValues(alpha: quiz.isCompleted ? 0.5 : 1.0),
+                          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
                         ),
@@ -229,7 +229,7 @@ class DayDetailScreen extends StatelessWidget {
                       TextSpan(
                         text: ' — ${quiz.title}',
                         style: TextStyle(
-                          color: (isDark ? Colors.white : Colors.black87).withValues(alpha: quiz.isCompleted ? 0.4 : 0.9),
+                          color: (isDark ? Colors.white : Colors.black87).withValues(alpha: 0.8),
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
@@ -252,30 +252,31 @@ class DayDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildArticleCard(BuildContext context, ArticleDetail article) {
+  Widget _buildArticleCard(BuildContext context, ArticleDetail article, List<ArticleDetail> allArticles) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white;
+    final cardColor = isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8), // Reduced margin for compact look
       decoration: BoxDecoration(
-        color: article.isCompleted ? cardColor.withValues(alpha: isDark ? 0.01 : 0.5) : cardColor,
+        color: article.isCompleted ? cardColor.withValues(alpha: 0.5) : cardColor,
         borderRadius: BorderRadius.circular(10), // Slightly smaller radius
         border: Border.all(
           color: article.isCompleted 
-              ? Colors.green.withValues(alpha: 0.1) 
-              : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+              ? Colors.green.withValues(alpha: 0.5) 
+              : (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
         ),
       ),
       child: InkWell(
         onTap: () {
           if (article.url != null) {
+            final initialIndex = allArticles.indexOf(article);
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => ArticleReaderScreen(
-                  url: article.url!,
-                  initialTitle: article.title,
+                  articles: allArticles,
+                  initialIndex: initialIndex != -1 ? initialIndex : 0,
                 ),
               ),
             );
@@ -299,7 +300,7 @@ class DayDetailScreen extends StatelessWidget {
                       maxLines: 3, // Increased lines slightly since subtitle is gone
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: (isDark ? Colors.white : Colors.black87).withValues(alpha: article.isCompleted ? 0.3 : 0.9),
+                        color: (isDark ? Colors.white : Colors.black87).withValues(alpha: 0.8),
                         fontSize: 13,
                         fontWeight: FontWeight.w800, // Stronger weight for heading
                         letterSpacing: -0.2,
@@ -313,7 +314,7 @@ class DayDetailScreen extends StatelessWidget {
                 const Icon(Icons.check_circle_rounded, color: Colors.green, size: 16)
               else
                 Icon(Icons.arrow_forward_ios_rounded, 
-                  color: isDark ? Colors.white.withValues(alpha: 0.15) : Colors.black12, 
+                  color: isDark ? Colors.white.withValues(alpha: 0.2) : Colors.black12,
                   size: 12),
             ],
           ),

@@ -1,30 +1,38 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:provider/provider.dart';
 import 'package:upsc_ca_ui/main.dart';
+import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
+import 'package:upsc_ca_ui/providers/theme_provider.dart';
+import 'package:upsc_ca_ui/firebase_options.dart';
+import './mock_firebase.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  setupMockFirebase();
+
+  testWidgets('App loads and shows login screen', (WidgetTester tester) async {
+    // Ensure Firebase is initialized for the test
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => DashboardProvider()),
+          ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ],
+        child: const MyApp(),
+      ),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    // Initial pump to let the AuthWrapper build
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify that the login screen is shown (assuming no user is logged in)
+    // Check for "UPSC CA" text which is in LoginScreen
+    expect(find.text('UPSC CA'), findsOneWidget);
+    expect(find.text('Read today. Recall tomorrow.'), findsOneWidget);
   });
 }

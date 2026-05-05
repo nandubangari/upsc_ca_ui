@@ -72,7 +72,7 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
         if (src.isNotEmpty) {
           contentBlocks.add(ContentBlock(type: ContentBlockType.image, data: src));
           if (caption.isNotEmpty) {
-            contentBlocks.add(ContentBlock(type: ContentBlockType.p, data: _cleanText(caption)));
+            contentBlocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(_cleanText(caption))]));
           }
         }
         continue;
@@ -112,7 +112,7 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
 
         contentBlocks.add(ContentBlock(
           type: isHeading ? ContentBlockType.h3 : ContentBlockType.p,
-          data: text,
+          data: isHeading ? text : [InlineSpanData(text)],
         ));
       } else if (node.localName != null && ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].contains(node.localName)) {
         final text = _cleanText(node.text);
@@ -143,7 +143,7 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
           if (node.localName == 'p') {
             final text = _cleanText(node.text);
             if (text.isNotEmpty) {
-               innerBlocks.add(ContentBlock(type: ContentBlockType.p, data: text));
+               innerBlocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(text)]));
             }
           } else if (node.localName == 'ul' || node.localName == 'ol') {
             innerBlocks.add(ContentBlock(type: ContentBlockType.ul, data: _parseList(node)));
@@ -186,7 +186,7 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
         liClone.querySelector('ol')?.remove();
 
         items.add(ListItem(
-          text: _cleanText(liClone.text),
+          spans: [InlineSpanData(_cleanText(liClone.text))],
           children: children,
         ));
       }
@@ -206,7 +206,7 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
     final title = document.querySelector('h1')?.text.trim() ?? 'Untitled';
     return ArticleContent(
       title: title,
-      content: [ContentBlock(type: ContentBlockType.p, data: 'InsightsIAS article content extraction in progress...')],
+      content: [ContentBlock(type: ContentBlockType.p, data: [InlineSpanData('InsightsIAS article content extraction in progress...')])],
       source: SourceInfo(text: 'InsightsIAS', url: url),
     );
   }

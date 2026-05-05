@@ -190,9 +190,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+              color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.08)),
+              border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.1)),
             ),
             child: Icon(icon, color: iconColor ?? (isDark ? Colors.white70 : Colors.black54), size: 18),
           ),
@@ -212,7 +212,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: primaryColor.withValues(alpha: 0.5), width: 1.5),
+            border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 1.5),
           ),
           child: CircleAvatar(
             radius: 40,
@@ -350,7 +350,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+              color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
               shape: BoxShape.circle,
               border: Border.all(
                 color: isDark ? Colors.white10 : Colors.black12,
@@ -465,9 +465,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white,
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.05)),
+        border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
         boxShadow: [
           if (!isDark)
             BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 20, offset: const Offset(0, 8)),
@@ -588,9 +588,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
         decoration: BoxDecoration(
-          color: isSelected ? primaryColor : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+          color: isSelected ? primaryColor : (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
           borderRadius: BorderRadius.circular(16),
-          boxShadow: isSelected ? [BoxShadow(color: primaryColor.withValues(alpha: 0.3), blurRadius: 10)] : [],
+          boxShadow: isSelected ? [BoxShadow(color: primaryColor.withValues(alpha: 0.4), blurRadius: 10)] : [],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -614,7 +614,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               child: Icon(
                 Icons.close_rounded,
                 size: 14,
-                color: isSelected ? Colors.white.withValues(alpha: 0.7) : (isDark ? Colors.white24 : Colors.black12),
+                color: isSelected ? Colors.white.withValues(alpha: 0.5) : (isDark ? Colors.white24 : Colors.black12),
               ),
             ),
           ],
@@ -684,6 +684,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   Widget _buildModernFinishButton(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     final primaryColor = Theme.of(context).colorScheme.primary;
+    final navigator = Navigator.of(context);
+    
     return GestureDetector(
       onTap: () async {
         setState(() => _isDataLoading = true);
@@ -705,7 +707,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         if (!mounted) return;
         setState(() => _isDataLoading = false);
 
-        Navigator.of(context).pushAndRemoveUntil(
+        navigator.pushAndRemoveUntil(
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) => const DashboardScreen(),
             transitionsBuilder: (context, animation, secondaryAnimation, child) => FadeTransition(opacity: animation, child: child),

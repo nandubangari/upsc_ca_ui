@@ -69,7 +69,7 @@ class _AnimatedLogoState extends State<AnimatedLogo> with TickerProviderStateMix
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: primaryColor.withValues(alpha: 0.2),
+                    color: primaryColor.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
@@ -86,12 +86,12 @@ class _AnimatedLogoState extends State<AnimatedLogo> with TickerProviderStateMix
                   shape: BoxShape.circle,
                   color: Colors.white.withValues(alpha: 0.1),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.3),
+                    color: Colors.white.withValues(alpha: 0.2),
                     width: 1.5,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: primaryColor.withValues(alpha: 0.4),
+                      color: primaryColor.withValues(alpha: 0.3),
                       blurRadius: 20,
                     ),
                   ],
@@ -107,7 +107,7 @@ class _AnimatedLogoState extends State<AnimatedLogo> with TickerProviderStateMix
                           width: 40,
                           height: 20,
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.4),
+                            color: Colors.white.withValues(alpha: 0.5),
                             borderRadius: const BorderRadius.all(Radius.elliptical(40, 20)),
                           ),
                         ),

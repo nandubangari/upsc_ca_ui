@@ -150,7 +150,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                        color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.1)),
                       ),
@@ -256,30 +256,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           itemBuilder: (context, index) => _buildTaskCard(context, data.todayTasks[index]),
         ),
         const SizedBox(height: 32),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSectionHeader(context, 'Not Started'),
-                  ...data.notStartedTasks.map((t) => _buildTaskCard(context, t)),
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSectionHeader(context, 'Completed'),
-                  ...data.completedTasks.map((t) => _buildTaskCard(context, t)),
-                ],
-              ),
-            ),
-          ],
-        ),
+        _buildSectionHeader(context, 'Not Started'),
+        ...data.notStartedTasks.map((t) => _buildTaskCard(context, t)),
+        const SizedBox(height: 32),
+        _buildSectionHeader(context, 'Completed History'),
+        ...data.completedTasks.map((t) => _buildTaskCard(context, t)),
         const SizedBox(height: 40),
       ],
     );
@@ -325,12 +306,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white,
+              color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: isRevision 
-                    ? primaryColor.withValues(alpha: 0.2)
-                    : (isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.05)),
+                    ? primaryColor.withValues(alpha: 0.3)
+                    : (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
                 width: 1,
               ),
               boxShadow: [
@@ -353,7 +334,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       color: primaryColor,
                       borderRadius: BorderRadius.circular(2),
                       boxShadow: [
-                        BoxShadow(color: primaryColor.withValues(alpha: 0.3), blurRadius: 4),
+                        BoxShadow(color: primaryColor.withValues(alpha: 0.4), blurRadius: 4),
                       ],
                     ),
                   ),
@@ -467,9 +448,9 @@ class _CompletedTaskCardState extends State<CompletedTaskCard> {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.02) : Colors.white,
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+        border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
         boxShadow: [
           if (!isDark)
             BoxShadow(
@@ -509,7 +490,7 @@ class _CompletedTaskCardState extends State<CompletedTaskCard> {
                         Text(
                           'REVISION: 10/04/2026',
                           style: TextStyle(
-                            color: isDark ? Colors.white.withValues(alpha: 0.2) : Colors.black38, 
+                            color: isDark ? Colors.white.withValues(alpha: 0.3) : Colors.black38, 
                             fontSize: 9, 
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.5,
@@ -547,7 +528,7 @@ class _CompletedTaskCardState extends State<CompletedTaskCard> {
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
       child: Column(
         children: [
-          Divider(color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.1), height: 1),
+          Divider(color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.1), height: 1),
           const SizedBox(height: 12),
           ...widget.task.repetitions!.map((r) => _buildMicroRepetitionRow(context, r)),
         ],

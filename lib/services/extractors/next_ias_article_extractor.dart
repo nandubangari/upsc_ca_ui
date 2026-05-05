@@ -69,7 +69,7 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
           _stopParsing = true;
           return;
         }
-        blocks.add(ContentBlock(type: ContentBlockType.p, data: _cleanText(text)));
+        blocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(_cleanText(text))]));
       }
       return;
     }
@@ -85,7 +85,7 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
         return;
       }
       if (text.isNotEmpty) {
-        blocks.add(ContentBlock(type: ContentBlockType.p, data: text));
+        blocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(text)]));
       }
     } 
     // Handle Images (wp-block-image style)
@@ -192,7 +192,7 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
         liClone.querySelector('ol')?.remove();
 
         items.add(ListItem(
-          text: _cleanText(liClone.text),
+          spans: [InlineSpanData(_cleanText(liClone.text))],
           children: children,
         ));
       }
@@ -208,7 +208,7 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
     final title = document.querySelector('h1')?.text.trim() ?? 'Untitled';
     return ArticleContent(
       title: title,
-      content: [ContentBlock(type: ContentBlockType.p, data: 'NextIAS article content extraction in progress...')],
+      content: [ContentBlock(type: ContentBlockType.p, data: [InlineSpanData('NextIAS article content extraction in progress...')])],
       source: SourceInfo(text: 'NextIAS', url: url),
     );
   }

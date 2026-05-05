@@ -53,7 +53,7 @@ class GenericArticleExtractor implements BaseArticleExtractor {
 
     // Fallback if no content found
     if (contentBlocks.isEmpty && description != null) {
-      contentBlocks.add(ContentBlock(type: ContentBlockType.p, data: description));
+      contentBlocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(description)]));
     }
 
     return ArticleContent(
@@ -109,7 +109,7 @@ class GenericArticleExtractor implements BaseArticleExtractor {
       if (child.localName == 'p') {
         final text = child.text.trim();
         if (text.length > 20) { // Avoid tiny snippets or UI noise
-          blocks.add(ContentBlock(type: ContentBlockType.p, data: text));
+          blocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(text)]));
         }
       } else if (child.localName == 'ul' || child.localName == 'ol') {
         final listItems = _parseList(child);
@@ -143,7 +143,7 @@ class GenericArticleExtractor implements BaseArticleExtractor {
         liClone.querySelector('ol')?.remove();
 
         items.add(ListItem(
-          text: liClone.text.trim(),
+          spans: [InlineSpanData(liClone.text.trim())],
           children: children,
         ));
       }

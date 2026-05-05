@@ -73,7 +73,7 @@ class _GradientBackgroundState extends State<GradientBackground> with SingleTick
                 gradient: RadialGradient(
                   colors: [
                     Colors.transparent,
-                    backgroundColor.withValues(alpha: isDark ? 0.5 : 0.1),
+                    backgroundColor.withValues(alpha: 0.1),
                   ],
                   stops: const [0.6, 1.0],
                 ),
@@ -104,35 +104,35 @@ class MeshPainter extends CustomPainter {
       canvas.drawCircle(center, radius, paint);
     }
 
-    final double baseOpacity = isDark ? 1.0 : 0.4;
+    final double baseOpacity = isDark ? 0.3 : 0.15;
 
     // Blob 1: Dynamic Primary (Moves in a large circle)
     final b1Center = Offset(
       size.width * 0.2 + 100 * math.cos(progress * 2 * math.pi),
       size.height * 0.2 + 80 * math.sin(progress * 2 * math.pi),
     );
-    drawBlob(b1Center, 250, primaryColor.withValues(alpha: 0.15 * baseOpacity));
+    drawBlob(b1Center, 250, primaryColor.withValues(alpha: baseOpacity));
 
     // Blob 2: Primary Accent (Moves in figure eight)
     final b2Center = Offset(
       size.width * 0.8 + 120 * math.sin(progress * 2 * math.pi),
       size.height * 0.7 + 100 * math.sin(progress * 4 * math.pi),
     );
-    drawBlob(b2Center, 300, primaryColor.withValues(alpha: 0.12 * baseOpacity));
+    drawBlob(b2Center, 300, primaryColor.withValues(alpha: baseOpacity));
 
     // Blob 3: Primary Soft (Slow drift)
     final b3Center = Offset(
       size.width * 0.5 + 50 * math.cos(progress * 2 * math.pi + 1),
       size.height * 0.4 + 150 * math.sin(progress * 1 * math.pi),
     );
-    drawBlob(b3Center, 200, primaryColor.withValues(alpha: 0.08 * baseOpacity));
+    drawBlob(b3Center, 200, primaryColor.withValues(alpha: baseOpacity * 0.8));
     
     // Blob 4: Soft Highlight
     final b4Center = Offset(
       size.width * 0.1 + 80 * math.sin(progress * 3 * math.pi),
       size.height * 0.9,
     );
-    drawBlob(b4Center, 150, (isDark ? Colors.white : primaryColor).withValues(alpha: 0.03 * baseOpacity));
+    drawBlob(b4Center, 150, (isDark ? Colors.white : primaryColor).withValues(alpha: baseOpacity * 0.5));
   }
 
   @override

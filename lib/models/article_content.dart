@@ -16,20 +16,34 @@ class ArticleContent {
   });
 }
 
-enum ContentBlockType { p, ul, h3, table, callout, image }
+enum ContentBlockType { p, ul, h2, h3, table, callout, image }
+
+class InlineSpanData {
+  final String text;
+  final bool isBold;
+  final String? color;
+
+  InlineSpanData(this.text, {this.isBold = false, this.color});
+}
 
 class ContentBlock {
   final ContentBlockType type;
-  final dynamic data; // String for p/h3/image, List<ListItem> for ul, List<List<String>> for table, List<ContentBlock> for callout
+  final dynamic data; 
+  // data:
+  // - List<InlineSpanData> for p
+  // - String for h2, h3, image
+  // - List<ListItem> for ul
+  // - List<List<String>> for table
+  // - List<ContentBlock> for callout
 
   ContentBlock({required this.type, required this.data});
 }
 
 class ListItem {
-  final String text;
+  final List<InlineSpanData> spans;
   final List<ListItem> children;
 
-  ListItem({required this.text, this.children = const []});
+  ListItem({required this.spans, this.children = const []});
 }
 
 class SourceInfo {

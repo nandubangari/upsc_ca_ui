@@ -28,6 +28,13 @@ class ArticleParserService {
       extractor = GenericArticleExtractor();
     }
     
-    return extractor.fetchAndParse(url);
+    try {
+      return await extractor.fetchAndParse(url);
+    } catch (e, stack) {
+      print('ERROR: [Parser] Failed to extract article from $url');
+      print('ERROR: $e');
+      print('STACKTRACE: $stack');
+      rethrow;
+    }
   }
 }

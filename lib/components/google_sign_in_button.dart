@@ -60,7 +60,7 @@ class _GoogleSignInButtonState extends State<GoogleSignInButton> with TickerProv
             borderRadius: BorderRadius.circular(AppTheme.buttonRadius),
             boxShadow: [
               BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                 blurRadius: 24,
                 offset: const Offset(0, 8),
                 spreadRadius: -4,
@@ -92,7 +92,7 @@ class _GoogleSignInButtonState extends State<GoogleSignInButton> with TickerProv
                             gradient: LinearGradient(
                               colors: [
                                 Colors.white.withValues(alpha: 0.0),
-                                Colors.white.withValues(alpha: 0.8),
+                                Colors.white.withValues(alpha: 0.4),
                                 Colors.white.withValues(alpha: 0.0),
                               ],
                               stops: const [0.0, 0.5, 1.0],

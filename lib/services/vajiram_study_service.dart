@@ -97,7 +97,7 @@ class VajiramStudyService {
             final res = await http.get(url, headers: {
               ..._headers,
               'x-requested-with': 'XMLHttpRequest',
-              if (cookies != null) 'Cookie': cookies,
+              'Cookie': ?cookies,
             });
             
             if (res.statusCode != 200) {
