@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../services/vajiram_session_service.dart';
 import '../services/vajiram_study_service.dart';
-import '../services/profile_service.dart';
-import '../models/study_item_model.dart';
 
 class VajiramLoginPage extends StatefulWidget {
   const VajiramLoginPage({super.key});

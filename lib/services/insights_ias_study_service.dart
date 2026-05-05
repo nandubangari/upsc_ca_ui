@@ -1,6 +1,5 @@
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as parser;
-import 'package:html/dom.dart';
 import '../models/study_item_model.dart';
 import '../core/utils/insights_ias_url_builder.dart';
 

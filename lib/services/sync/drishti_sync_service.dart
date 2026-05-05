@@ -1,12 +1,11 @@
+import '../drishti_study_service.dart';
 import '../../models/study_item_model.dart';
-import '../../models/dashboard_data.dart';
-import '../next_ias_study_service.dart';
 import 'base_sync_service.dart';
 
-class NextIASSyncService extends BaseSyncService {
-  final NextIASStudyService _studyService = NextIASStudyService();
+class DrishtiSyncService extends BaseSyncService {
+  final DrishtiStudyService _studyService = DrishtiStudyService();
 
-  NextIASSyncService() : super(sourceName: 'NextIAS');
+  DrishtiSyncService() : super(sourceName: 'Drishti IAS');
 
   @override
   Future<List<DailyStudyData>> fetchFromNetwork(int year, int month, {DateTime? startDate, Function(String)? onStatusUpdate}) async {
@@ -35,21 +34,5 @@ class NextIASSyncService extends BaseSyncService {
     }
 
     return allDays;
-  }
-
-  Future<void> syncArticles({
-    required DateTime startDate,
-    bool forceRefresh = false,
-    Function(String)? onStatusUpdate,
-  }) async {
-    await syncRange(startDate: startDate, forceRefresh: forceRefresh, onStatusUpdate: onStatusUpdate);
-  }
-
-  Future<Map<String, List<StudyItem>>> getSyncedArticles() async {
-    return await getAllSyncedArticles();
-  }
-
-  Future<Map<String, List<QuizDetail>>> getSyncedQuizzes() async {
-    return await getAllSyncedQuizzes();
   }
 }

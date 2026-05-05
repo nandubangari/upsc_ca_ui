@@ -34,7 +34,7 @@ abstract class BaseSyncService {
       onStatusUpdate?.call('Checking $sourceName for ${currentMonth.year}/${currentMonth.month}...');
 
       // 1. Get existing data from Firestore for this source and month
-      final existingData = await _getMonthDataFromFirestore(user.uid, currentMonth.year, currentMonth.month);
+      final existingData = await getMonthDataFromFirestore(user.uid, currentMonth.year, currentMonth.month);
 
       // 2. Decide if we need to fetch from network
       // We fetch if:
@@ -94,7 +94,7 @@ abstract class BaseSyncService {
           }).where((d) => d.items.isNotEmpty || d.quizzes.isNotEmpty).toList();
 
           // 3. Merge and Save
-          await _mergeAndSave(user.uid, currentMonth.year, currentMonth.month, existingData, filteredNetData, forceRefresh: forceRefresh);
+          await mergeAndSave(user.uid, currentMonth.year, currentMonth.month, existingData, filteredNetData, forceRefresh: forceRefresh);
         }
       }
 
@@ -103,7 +103,7 @@ abstract class BaseSyncService {
     }
   }
 
-  Future<Map<String, List<StudyItem>>> _getMonthDataFromFirestore(String uid, int year, int month) async {
+  Future<Map<String, List<StudyItem>>> getMonthDataFromFirestore(String uid, int year, int month) async {
     final docId = '${year}_${month.toString().padLeft(2, '0')}';
     final doc = await _db
         .collection('users')
@@ -127,7 +127,7 @@ abstract class BaseSyncService {
     return results;
   }
 
-  Future<void> _mergeAndSave(
+  Future<void> mergeAndSave(
     String uid, 
     int year, 
     int month, 

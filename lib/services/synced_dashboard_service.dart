@@ -8,6 +8,8 @@ import 'sync/vision_sync_service.dart';
 import 'sync/next_ias_sync_service.dart';
 import 'sync/insights_ias_sync_service.dart';
 import 'sync/chahal_sync_service.dart';
+import 'sync/drishti_sync_service.dart';
+import 'sync/insights_quiz_sync_service.dart';
 import 'profile_service.dart';
 import '../core/utils/date_formatter.dart';
 
@@ -19,6 +21,8 @@ class SyncedDashboardService implements DashboardService {
     NextIASSyncService(),
     InsightsIASSyncService(),
     ChahalSyncService(),
+    DrishtiSyncService(),
+    InsightsQuizSyncService(),
   ];
   final ProfileService _profileService = ProfileService();
 

@@ -8,6 +8,8 @@ import '../services/sync/vision_sync_service.dart';
 import '../services/sync/next_ias_sync_service.dart';
 import '../services/sync/insights_ias_sync_service.dart';
 import '../services/sync/chahal_sync_service.dart';
+import '../services/sync/drishti_sync_service.dart';
+import '../services/sync/insights_quiz_sync_service.dart';
 import '../services/profile_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -24,6 +26,8 @@ class DashboardProvider with ChangeNotifier {
   final NextIASSyncService _nextIasSync = NextIASSyncService();
   final InsightsIASSyncService _insightsIasSync = InsightsIASSyncService();
   final ChahalSyncService _chahalSync = ChahalSyncService();
+  final DrishtiSyncService _drishtiSync = DrishtiSyncService();
+  final InsightsQuizSyncService _insightsQuizSync = InsightsQuizSyncService();
 
   DashboardData? get data => _data;
   bool get isLoading => _isLoading;
@@ -58,7 +62,7 @@ class DashboardProvider with ChangeNotifier {
   Future<void> syncAllArticles({bool forceRefresh = false, bool isRetryAfterLogin = false}) async {
     _isSyncing = true;
     _syncStatus = isRetryAfterLogin ? 'Retrying sync after login...' : (forceRefresh ? 'Force refreshing sources...' : 'Starting sync...');
-    print('DEBUG: [DashboardProvider] syncAllArticles called (forceRefresh: $forceRefresh, isRetry: $isRetryAfterLogin)');
+    debugPrint('DEBUG: [DashboardProvider] syncAllArticles called (forceRefresh: $forceRefresh, isRetry: $isRetryAfterLogin)');
     notifyListeners();
 
     try {
@@ -126,6 +130,26 @@ class DashboardProvider with ChangeNotifier {
           },
         );
 
+        // Sync Drishti IAS
+        await _drishtiSync.syncRange(
+          startDate: profile.startDate,
+          forceRefresh: forceRefresh,
+          onStatusUpdate: (status) {
+            _syncStatus = "[Drishti] $status";
+            notifyListeners();
+          },
+        );
+
+        // Sync InsightsIAS Quiz (includes QUED and CA)
+        await _insightsQuizSync.syncRange(
+          startDate: profile.startDate,
+          forceRefresh: forceRefresh,
+          onStatusUpdate: (status) {
+            _syncStatus = "[Insights Quiz] $status";
+            notifyListeners();
+          },
+        );
+
         // Reload data after sync
         await loadDashboardData();
       } else {
@@ -179,7 +203,7 @@ class DashboardProvider with ChangeNotifier {
         await loadDashboardData();
       }
     } catch (e) {
-      print("Error updating exam date: $e");
+      debugPrint("Error updating exam date: $e");
     }
   }
 }

@@ -68,11 +68,10 @@ class VajiramStudyService {
   }) async {
     print('DEBUG: [Vajiram] fetch() called with cookies: ${cookies != null ? "YES (length: ${cookies.length})" : "NO"}');
     final Map<String, List<StudyItem>> groupedArticles = {};
-    final Map<String, List<QuizDetail>> groupedQuizzes = {};
+    final groupedQuizzes = <String, List<QuizDetail>>{};
     final Set<String> seenIds = {};
 
     final fYear = year.toString();
-    final fMonth = month.toString();
 
     // 1. Fetch Articles
     final monthFormats = {
@@ -206,9 +205,6 @@ class VajiramStudyService {
 
     for (var card in cards) {
       final titleEl = card.querySelector('.mcq_card_title') ?? card;
-      if (titleEl == null) {
-        continue;
-      }
 
       final title = titleEl.text.trim();
       final relativeLink = card.attributes['href'] ?? '';

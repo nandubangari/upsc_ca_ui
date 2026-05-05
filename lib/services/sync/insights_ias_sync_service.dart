@@ -1,5 +1,6 @@
 import '../insights_ias_study_service.dart';
 import '../../models/study_item_model.dart';
+import '../../models/dashboard_data.dart';
 import 'base_sync_service.dart';
 
 class InsightsIASSyncService extends BaseSyncService {
@@ -50,5 +51,9 @@ class InsightsIASSyncService extends BaseSyncService {
 
   Future<Map<String, List<StudyItem>>> getSyncedArticles() async {
     return await getAllSyncedArticles();
+  }
+
+  Future<Map<String, List<QuizDetail>>> getSyncedQuizzes() async {
+    return await getAllSyncedQuizzes();
   }
 }

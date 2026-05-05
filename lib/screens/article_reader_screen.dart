@@ -176,7 +176,7 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
                                   article.imageUrl!,
                                   width: double.infinity,
                                   fit: BoxFit.contain,
-                                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
                                 ),
                               ),
                             ),
@@ -469,7 +469,6 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
       case ContentBlockType.image:
         return _buildInlineImage(context, block.data as String);
     }
-    return const SizedBox.shrink();
   }
 
   Widget _buildInlineImage(BuildContext context, String imageUrl) {
@@ -495,7 +494,7 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
               ),
             );
           },
-          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
         ),
       ),
     );
@@ -674,7 +673,6 @@ class _StickyTitleDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final double opacity = (1 - (shrinkOffset / maxExtent)).clamp(0.0, 1.0);
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
     

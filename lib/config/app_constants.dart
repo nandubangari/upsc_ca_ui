@@ -14,6 +14,7 @@ class AppConstants {
     'NextIAS',
     'Chahal Academy',
     'InsightsIAS',
+    'InsightsIAS QUED',
     'Drishti IAS',
   ];
 

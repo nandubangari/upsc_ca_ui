@@ -1,81 +1,105 @@
+import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as parser;
-import 'package:html/dom.dart';
 import '../models/study_item_model.dart';
+import '../models/dashboard_data.dart';
 
 class NextIASStudyService {
-  static const String baseUrl = "https://www.nextias.com";
-
-  /// Fetches articles for a specific date (DD-MM-YYYY)
-  Future<DailyStudyData?> fetchByDate(String dateStr, {Function(String)? onStatusUpdate}) async {
-    // Expected format dd-mm-yyyy for URL
-    final url = "$baseUrl/ca/current-affairs/$dateStr";
-
+  /// Returns the static NextIAS quiz URL and articles for a specific date
+  Future<DailyStudyData?> fetchByDate(String isoDate, {Function(String)? onStatusUpdate}) async {
     try {
-      print('DEBUG: [NextIAS] Requesting URL: $url');
-      onStatusUpdate?.call('Fetching NextIAS for $dateStr...');
+      onStatusUpdate?.call('Fetching NextIAS articles for $isoDate...');
+      final articles = await fetchArticlesByDate(isoDate);
       
+      onStatusUpdate?.call('Fetching NextIAS quizzes for $isoDate...');
+      final quizzes = await fetchQuizzesByDate(isoDate);
+      
+      return DailyStudyData(
+        date: isoDate,
+        items: articles,
+        quizzes: quizzes,
+      );
+    } catch (e) {
+      print('DEBUG: [NextIAS] Error fetching $isoDate: $e');
+      return null;
+    }
+  }
+
+  Future<List<StudyItem>> fetchArticlesByDate(String isoDate) async {
+    final dt = DateTime.parse(isoDate);
+    final formattedDate = DateFormat('dd-MM-yyyy').format(dt);
+    final url = "https://www.nextias.com/ca/current-affairs/$formattedDate";
+
+    final html = await _getHtml(url);
+    if (html == null) return [];
+
+    return _parseArticles(html, isoDate);
+  }
+
+  Future<String?> _getHtml(String url) async {
+    try {
       final response = await http.get(
         Uri.parse(url),
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+          "Accept": "text/html",
         },
       );
-
-      if (response.statusCode != 200) {
-        print('DEBUG: [NextIAS] No content for $dateStr. Status: ${response.statusCode}');
-        return null;
-      }
-
-      final document = parser.parse(response.body);
-      final List<StudyItem> items = [];
-
-      final articleNodes = document.querySelectorAll('article');
-
-      for (var article in articleNodes) {
-        // 1. Title + Link
-        final anchor = article.querySelector('h2 a');
-        final title = anchor?.text.trim() ?? "";
-        String href = anchor?.attributes['href']?.trim() ?? "";
-
-        if (title.isEmpty || href.isEmpty) continue;
-
-        final fullUrl = href.startsWith('http') ? href : '$baseUrl$href';
-
-        // 2. Extract Preview Points as Subtitle
-        final List<String> previewPoints = [];
-        final liTags = article.querySelectorAll('li');
-
-        for (var li in liTags) {
-          final text = li.text.replaceAll(RegExp(r'\s+'), ' ').trim();
-          if (text.isNotEmpty) {
-            previewPoints.add(text);
-          }
-        }
-
-        items.add(StudyItem(
-          title: title,
-          url: fullUrl,
-          date: dateStr,
-          subtitle: previewPoints.isNotEmpty ? previewPoints.join(' • ') : 'NextIAS Daily Current Affairs',
-        ));
-      }
-
-      print('DEBUG: [NextIAS] Found ${items.length} articles for $dateStr');
-      
-      if (items.isEmpty) return null;
-
-      // Convert dateStr (DD-MM-YYYY) to ISO (YYYY-MM-DD) for consistency in the model
-      final parts = dateStr.split('-');
-      final isoDate = "${parts[2]}-${parts[1]}-${parts[0]}";
-
-      return DailyStudyData(
-        date: isoDate,
-        items: items,
-      );
+      if (response.statusCode != 200) return null;
+      return response.body;
     } catch (e) {
-      print('DEBUG: [NextIAS] Error fetching $dateStr: $e');
       return null;
     }
   }
+
+  List<StudyItem> _parseArticles(String html, String isoDate) {
+    final document = parser.parse(html);
+    final List<StudyItem> results = [];
+
+    /// 🧠 Extract page date
+    final header = document.querySelector('h1');
+    final pageDate = header?.text.trim() ?? "";
+
+    /// 🔍 Core selector for articles
+    final articles = document.querySelectorAll('article');
+
+    for (final article in articles) {
+      final linkElement = article.querySelector('h2 a');
+
+      if (linkElement == null) continue;
+
+      final title = linkElement.text.trim();
+      final href = linkElement.attributes['href'];
+
+      if (href == null || title.isEmpty) continue;
+
+      results.add(
+        StudyItem(
+          title: title,
+          url: href.trim(),
+          date: isoDate,
+          source: 'NextIAS',
+          subtitle: pageDate,
+        ),
+      );
+    }
+
+    return results;
+  }
+
+  Future<List<QuizDetail>> fetchQuizzesByDate(String isoDate) async {
+    final dt = DateTime.parse(isoDate);
+    final formattedTitleDate = DateFormat('dd MMM yyyy').format(dt);
+
+    return [
+      QuizDetail(
+        source: 'NextIAS',
+        title: 'Daily CA MCQs ($formattedTitleDate)',
+        url: 'https://www.nextias.com/daily-mcq/daily-ca-mcqs',
+        isCompleted: false,
+      )
+    ];
+  }
+
+  void dispose() {}
 }

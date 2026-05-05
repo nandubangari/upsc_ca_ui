@@ -697,7 +697,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             quizSources: _quizSources,
             repetitionDays: _repetitionDays,
             availableDays: _availableDays,
-            themeColorValue: themeProvider.primaryColor.value,
+            themeColorValue: themeProvider.primaryColor.toARGB32(),
           );
           await _profileService.saveProfileToCloud(user.uid, profile);
         }
