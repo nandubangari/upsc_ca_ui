@@ -4,7 +4,10 @@ import '../components/gradient_background.dart';
 import '../models/dashboard_data.dart';
 import '../providers/dashboard_provider.dart';
 import '../services/auth_service.dart';
+import '../services/profile_service.dart';
+import '../services/quote_service.dart';
 import 'day_detail_screen.dart';
+import 'article_reader_screen.dart';
 import 'profile_setup_screen.dart';
 import 'vajiram_login_page.dart';
 
@@ -16,12 +19,31 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  String? _userName;
+  Quote? _quote;
+
   @override
   void initState() {
     super.initState();
+    _loadPersonalization();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<DashboardProvider>().loadDashboardData();
     });
+  }
+
+  Future<void> _loadPersonalization() async {
+    try {
+      final profile = await ProfileService().getProfile();
+      final quote = await QuoteService().getRandomQuote();
+      if (mounted) {
+        setState(() {
+          _userName = profile?.name ?? AuthService().currentUser?.displayName ?? 'Aspirant';
+          _quote = quote;
+        });
+      }
+    } catch (e) {
+      debugPrint('DEBUG: [Dashboard] Error loading personalization: $e');
+    }
   }
 
   @override
@@ -106,33 +128,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final provider = context.watch<DashboardProvider>();
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const ProfileSetupScreen()),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 1),
-                  ),
-                  child: CircleAvatar(
-                    radius: 16,
-                    backgroundImage: user?.photoURL != null 
-                        ? NetworkImage(user!.photoURL!)
-                        : const NetworkImage('https://api.dicebear.com/7.x/avataaars/png?seed=Nandhu'),
-                  ),
+              Expanded(
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const ProfileSetupScreen()),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 1),
+                        ),
+                        child: CircleAvatar(
+                          radius: 18,
+                          backgroundImage: user?.photoURL != null 
+                              ? NetworkImage(user!.photoURL!)
+                              : const NetworkImage('https://api.dicebear.com/7.x/avataaars/png?seed=Nandhu'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    if (_userName != null)
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Hi, ${_userName!.split(' ')[0]}',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            if (_quote != null)
+                              Text(
+                                _quote!.text,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: isDark ? Colors.white38 : Colors.black38,
+                                  fontSize: 10,
+                                  fontStyle: FontStyle.italic,
+                                  height: 1.2,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
+              const SizedBox(width: 8),
               Row(
                 children: [
                   IconButton(
@@ -144,7 +204,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     onPressed: provider.isSyncing ? null : () => provider.syncAllArticles(forceRefresh: true),
                     tooltip: 'Sync Sources',
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   GestureDetector(
                     onTap: () => _showExamDatePicker(context, provider),
                     child: Container(
@@ -222,47 +282,182 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildNarrowLayout(BuildContext context, DashboardData data) {
+    final nextUnread = context.select((DashboardProvider p) => p.nextUnreadTaskAndArticle);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader(context, 'Today\'s Tasks'),
-        ...data.todayTasks.map((t) => _buildTaskCard(context, t)),
-        const SizedBox(height: 24),
-        _buildSectionHeader(context, 'Not Started'),
-        ...data.notStartedTasks.map((t) => _buildTaskCard(context, t)),
-        const SizedBox(height: 24),
-        _buildSectionHeader(context, 'Completed History'),
-        ...data.completedTasks.map((t) => _buildTaskCard(context, t)),
+        if (nextUnread != null) ...[
+          _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
+          const SizedBox(height: 24),
+        ],
+        if (data.inProgressTasks.isNotEmpty) ...[
+          _buildSectionHeader(context, 'In Progress'),
+          ...data.inProgressTasks.map((t) => _buildTaskCard(context, t)),
+          const SizedBox(height: 24),
+        ],
+        if (data.todayTasks.isNotEmpty) ...[
+          _buildSectionHeader(context, 'Today\'s Tasks'),
+          ...data.todayTasks.map((t) => _buildTaskCard(context, t)),
+          const SizedBox(height: 24),
+        ],
+        if (data.notStartedTasks.isNotEmpty) ...[
+          _buildSectionHeader(context, 'Not Started'),
+          ...data.notStartedTasks.map((t) => _buildTaskCard(context, t)),
+          const SizedBox(height: 24),
+        ],
+        if (data.completedTasks.isNotEmpty) ...[
+          _buildSectionHeader(context, 'Completed History'),
+          ...data.completedTasks.map((t) => _buildTaskCard(context, t)),
+        ],
         const SizedBox(height: 40),
       ],
     );
   }
 
   Widget _buildWideLayout(BuildContext context, DashboardData data) {
+    final nextUnread = context.select((DashboardProvider p) => p.nextUnreadTaskAndArticle);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader(context, 'Today\'s Tasks'),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 10,
-            mainAxisExtent: 80,
+        if (nextUnread != null) ...[
+          _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
+          const SizedBox(height: 32),
+        ],
+        if (data.inProgressTasks.isNotEmpty) ...[
+          _buildSectionHeader(context, 'In Progress'),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 10,
+              mainAxisExtent: 80,
+            ),
+            itemCount: data.inProgressTasks.length,
+            itemBuilder: (context, index) => _buildTaskCard(context, data.inProgressTasks[index]),
           ),
-          itemCount: data.todayTasks.length,
-          itemBuilder: (context, index) => _buildTaskCard(context, data.todayTasks[index]),
-        ),
-        const SizedBox(height: 32),
-        _buildSectionHeader(context, 'Not Started'),
-        ...data.notStartedTasks.map((t) => _buildTaskCard(context, t)),
-        const SizedBox(height: 32),
-        _buildSectionHeader(context, 'Completed History'),
-        ...data.completedTasks.map((t) => _buildTaskCard(context, t)),
+          const SizedBox(height: 32),
+        ],
+        if (data.todayTasks.isNotEmpty) ...[
+          _buildSectionHeader(context, 'Today\'s Tasks'),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 10,
+              mainAxisExtent: 80,
+            ),
+            itemCount: data.todayTasks.length,
+            itemBuilder: (context, index) => _buildTaskCard(context, data.todayTasks[index]),
+          ),
+          const SizedBox(height: 32),
+        ],
+        if (data.notStartedTasks.isNotEmpty) ...[
+          _buildSectionHeader(context, 'Not Started'),
+          ...data.notStartedTasks.map((t) => _buildTaskCard(context, t)),
+          const SizedBox(height: 32),
+        ],
+        if (data.completedTasks.isNotEmpty) ...[
+          _buildSectionHeader(context, 'Completed History'),
+          ...data.completedTasks.map((t) => _buildTaskCard(context, t)),
+        ],
         const SizedBox(height: 40),
       ],
+    );
+  }
+
+  Widget _buildContinueReadingButton(BuildContext context, DashboardTask task, ArticleDetail article) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ArticleReaderScreen(
+                initialUrl: article.url,
+              ),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                primaryColor,
+                primaryColor.withValues(alpha: 0.8),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: primaryColor.withValues(alpha: 0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.menu_book_rounded, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CONTINUE READING',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      article.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    Text(
+                      'FROM ${task.date.toUpperCase()}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 14),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

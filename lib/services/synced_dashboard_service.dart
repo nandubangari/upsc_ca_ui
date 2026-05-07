@@ -28,6 +28,8 @@ class SyncedDashboardService implements DashboardService {
 
   SyncedDashboardService(this._baseService);
 
+  List<BaseSyncService> get syncServices => _syncServices;
+
   @override
   Future<DashboardData> fetchDashboardData() async {
     // 1. Fetch base dashboard data and user profile
@@ -86,15 +88,8 @@ class SyncedDashboardService implements DashboardService {
     print('DEBUG: [Dashboard] Total raw synced quizzes fetched: $totalSyncedQuizzesCount');
 
     // 3. Merge synced articles and quizzes into the dashboard tasks
-    final allTasks = <DashboardTask>[
-      ...baseData.todayTasks,
-      ...baseData.notStartedTasks,
-      ...baseData.completedTasks,
-    ];
-
-    // Use ISO dates as keys for consistent sorting and merging
     final Map<String, DashboardTask> taskMap = {};
-    for (var t in allTasks) {
+    for (var t in baseData.allTasks) {
       final iso = DateFormatter.toIso(DateFormatter.parseAny(t.date));
       taskMap[iso] = t;
     }
@@ -110,8 +105,9 @@ class SyncedDashboardService implements DashboardService {
           title: item.title,
           subtitle: item.subtitle,
           url: item.url,
-          isCompleted: false,
+          isCompleted: item.isCompleted,
           source: item.source,
+          completedAt: item.completedAt,
         );
       }
 
@@ -156,13 +152,14 @@ class SyncedDashboardService implements DashboardService {
               needsUpdate = true;
             }
 
-            if (needsUpdate) {
+            if (needsUpdate || existing.completedAt != incoming.completedAt) {
               mergedArticles[url] = ArticleDetail(
                 title: updatedTitle,
                 subtitle: updatedSubtitle,
                 url: incoming.url,
-                isCompleted: existing.isCompleted,
+                isCompleted: incoming.isCompleted, // Use incoming completion
                 source: incoming.source ?? existing.source,
+                completedAt: incoming.completedAt,
               );
             }
           } else {
@@ -174,7 +171,7 @@ class SyncedDashboardService implements DashboardService {
         
         taskMap[isoDate] = DashboardTask(
           date: existingTask.date,
-          articlesDone: existingTask.articlesDone,
+          articlesDone: 0, // Will be recalculated at the end
           totalArticles: finalArticles.length,
           quizzesDone: existingTask.quizzesDone,
           totalQuizzes: existingTask.totalQuizzes,
@@ -207,7 +204,12 @@ class SyncedDashboardService implements DashboardService {
         };
 
         for (var incoming in quizzes) {
-          if (!mergedQuizzes.containsKey(incoming.title)) {
+          if (mergedQuizzes.containsKey(incoming.title)) {
+            final existing = mergedQuizzes[incoming.title]!;
+            if (incoming.isCompleted && (!existing.isCompleted || existing.completedAt == null)) {
+              mergedQuizzes[incoming.title] = incoming;
+            }
+          } else {
             mergedQuizzes[incoming.title] = incoming;
           }
         }
@@ -218,7 +220,7 @@ class SyncedDashboardService implements DashboardService {
           date: existingTask.date,
           articlesDone: existingTask.articlesDone,
           totalArticles: existingTask.totalArticles,
-          quizzesDone: existingTask.quizzesDone,
+          quizzesDone: 0, // Will be recalculated at the end
           totalQuizzes: finalQuizzes.length,
           type: existingTask.type,
           dueDays: existingTask.dueDays,
@@ -241,42 +243,172 @@ class SyncedDashboardService implements DashboardService {
       }
     });
 
-    final todayIso = DateFormatter.toIso(DateTime.now());
+    // 🟢 Recalculate Done Counts for ALL tasks in taskMap to ensure accuracy
+    taskMap.forEach((iso, task) {
+      final articlesDone = task.articles.where((a) => a.isCompleted).length;
+      final quizzesDone = task.quizzes.where((q) => q.isCompleted).length;
+      taskMap[iso] = task.copyWith(
+        articlesDone: articlesDone,
+        quizzesDone: quizzesDone,
+      );
+    });
 
-    final List<DashboardTask> todayTasks = [];
-    final List<DashboardTask> notStartedTasks = [];
-    final List<DashboardTask> completedTasks = [];
+    // 4. Generate Spaced Repetitions
+    if (profile != null && profile.repetitionDays.isNotEmpty) {
+      final List<DashboardTask> originalTasks = taskMap.values.toList();
+      for (var task in originalTasks) {
+        // If all items are completed, schedule revisions
+        bool isTaskComplete = task.isFullyCompleted;
 
-    // Sort ISO dates descending (latest first)
-    final sortedIsoDates = taskMap.keys.toList()..sort((a, b) => b.compareTo(a));
+        if (isTaskComplete) {
+          final lastDone = _getLatestCompletionDate(task);
+          if (lastDone != null) {
+            for (int interval in profile.repetitionDays) {
+              DateTime scheduled = lastDone.add(Duration(days: interval));
+              scheduled = _adjustToAvailableDay(scheduled, profile.availableDays);
+              
+              final iso = DateFormatter.toIso(scheduled);
+              final appDate = DateFormatter.isoToAppDate(iso);
+              
+              // Only schedule future revisions (or today's)
+              final now = DateTime.now();
+              final today = DateTime(now.year, now.month, now.day);
+              if (scheduled.isBefore(today)) continue;
 
-    for (var iso in sortedIsoDates) {
-      final task = taskMap[iso]!;
-      if (iso == todayIso) {
-        todayTasks.add(task);
-      } else if (task.articlesDone + task.quizzesDone == task.totalArticles + task.totalQuizzes && 
-                 (task.totalArticles + task.totalQuizzes) > 0) {
-        completedTasks.add(task);
-      } else {
-        notStartedTasks.add(task);
+              final dueDays = scheduled.difference(today).inDays;
+
+              // Create or Update Revision Task
+              if (taskMap.containsKey(iso)) {
+                final existing = taskMap[iso]!;
+                // Merge items into existing task if it's already there
+                final mergedArticles = [...existing.articles, ...task.articles];
+                final mergedQuizzes = [...existing.quizzes, ...task.quizzes];
+                
+                // Deduplicate items during merge
+                final uniqueArticles = {for (var a in mergedArticles) a.url: a}.values.toList();
+                final uniqueQuizzes = {for (var q in mergedQuizzes) q.title: q}.values.toList();
+
+                taskMap[iso] = existing.copyWith(
+                  articles: uniqueArticles,
+                  quizzes: uniqueQuizzes,
+                  totalArticles: uniqueArticles.length,
+                  totalQuizzes: uniqueQuizzes.length,
+                  articlesDone: uniqueArticles.where((a) => a.isCompleted).length,
+                  quizzesDone: uniqueQuizzes.where((q) => q.isCompleted).length,
+                );
+              } else {
+                taskMap[iso] = DashboardTask(
+                  date: appDate,
+                  articlesDone: 0, // Revision starts fresh
+                  totalArticles: task.articles.length,
+                  quizzesDone: 0,
+                  totalQuizzes: task.quizzes.length,
+                  type: TaskType.revision,
+                  dueDays: dueDays,
+                  articles: task.articles.map((a) => a.copyWith(isCompleted: false, completedAt: null)).toList(),
+                  quizzes: task.quizzes.map((q) => q.copyWith(isCompleted: false, completedAt: null)).toList(),
+                );
+              }
+            }
+          }
+        }
       }
     }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final todayIso = DateFormatter.toIso(today);
 
     // Calculate days left from exam date
     int daysLeft = 0;
     if (profile?.examDate != null) {
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
       final exam = DateTime(profile!.examDate!.year, profile.examDate!.month, profile.examDate!.day);
       daysLeft = exam.difference(today).inDays;
       if (daysLeft < 0) daysLeft = 0;
     }
 
+    // 5. Categorize Tasks with Dynamic Quota for Today
+    final List<DashboardTask> allTasksSorted = taskMap.values.toList()
+      ..sort((a, b) => a.isoDate.compareTo(b.isoDate)); // Oldest first for backlog priority
+
+    final List<DashboardTask> todayTasks = [];
+    final List<DashboardTask> inProgressTasks = [];
+    final List<DashboardTask> notStartedTasks = [];
+    final List<DashboardTask> completedTasks = [];
+
+    // Separate completed and uncompleted
+    final List<DashboardTask> uncompleted = [];
+    for (var task in allTasksSorted) {
+      if (task.isFullyCompleted) {
+        completedTasks.add(task);
+      } else {
+        uncompleted.add(task);
+      }
+    }
+
+    // Calculate Quota
+    // quota = max(3, ceil(total_uncompleted / days_left))
+    final int quota = daysLeft > 0 
+        ? (uncompleted.length / daysLeft).ceil().clamp(3, uncompleted.length)
+        : uncompleted.length;
+
+    print('DEBUG: [Dashboard] Days Left: $daysLeft, Uncompleted Tasks: ${uncompleted.length}, Quota: $quota');
+
+    // Assign tasks based on quota and status
+    int assignedToToday = 0;
+    for (var task in uncompleted) {
+      final bool isStarted = (task.articlesDone + task.quizzesDone) > 0;
+      
+      if (assignedToToday < quota) {
+        todayTasks.add(task);
+        assignedToToday++;
+      } else if (isStarted) {
+        // Surplus started tasks stay in "In Progress"
+        inProgressTasks.add(task);
+      } else {
+        notStartedTasks.add(task);
+      }
+    }
+
+    // Sort sections for display (usually latest first looks better in history, 
+    // but today's tasks should probably be oldest first to encourage clearing backlog)
+    // We'll keep history latest first.
+    completedTasks.sort((a, b) => b.isoDate.compareTo(a.isoDate));
+
     return DashboardData(
       daysLeft: daysLeft,
       todayTasks: todayTasks,
+      inProgressTasks: inProgressTasks,
       notStartedTasks: notStartedTasks,
       completedTasks: completedTasks,
     );
+  }
+
+  DateTime? _getLatestCompletionDate(DashboardTask task) {
+    DateTime? latest;
+    for (var a in task.articles) {
+      if (a.completedAt != null) {
+        final dt = DateTime.tryParse(a.completedAt!);
+        if (dt != null && (latest == null || dt.isAfter(latest))) latest = dt;
+      }
+    }
+    for (var q in task.quizzes) {
+      if (q.completedAt != null) {
+        final dt = DateTime.tryParse(q.completedAt!);
+        if (dt != null && (latest == null || dt.isAfter(latest))) latest = dt;
+      }
+    }
+    return latest;
+  }
+
+  DateTime _adjustToAvailableDay(DateTime scheduled, List<int> availableDays) {
+    if (availableDays.isEmpty) return scheduled;
+    DateTime adjusted = DateTime(scheduled.year, scheduled.month, scheduled.day);
+    // Loop max 7 days to avoid infinite loop
+    for (int i = 0; i < 7; i++) {
+      if (availableDays.contains(adjusted.weekday)) return adjusted;
+      adjusted = adjusted.add(const Duration(days: 1));
+    }
+    return adjusted;
   }
 }

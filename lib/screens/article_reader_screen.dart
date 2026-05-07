@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import '../models/article_content.dart';
 import '../models/dashboard_data.dart';
+import '../providers/dashboard_provider.dart';
 import '../services/article_parser_service.dart';
 import '../theme/app_theme.dart';
 
 class ArticleReaderScreen extends StatefulWidget {
-  final List<ArticleDetail> articles;
-  final int initialIndex;
+  final String? initialUrl;
 
   const ArticleReaderScreen({
     super.key, 
-    required this.articles, 
-    required this.initialIndex,
+    this.initialUrl,
   });
 
   @override
@@ -24,11 +24,13 @@ class ArticleReaderScreen extends StatefulWidget {
 
 class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   late PageController _pageController;
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: widget.initialIndex);
+    // Initialize with 0, we will jump to the correct index in build once data is ready
+    _pageController = PageController();
   }
 
   @override
@@ -37,18 +39,91 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
     super.dispose();
   }
 
+  void _markAsCompleted(DashboardTask task, ArticleDetail article) {
+    if (!article.isCompleted) {
+      context.read<DashboardProvider>().markArticleAsCompleted(task, article);
+    }
+  }
+
+  void _goToNextPage(DashboardTask task, ArticleDetail article, int currentIndex, int totalCount) {
+    if (_pageController.hasClients) {
+      _markAsCompleted(task, article);
+      if (currentIndex < totalCount - 1) {
+        _pageController.nextPage(
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    }
+  }
+
+  void _goToPreviousPage() {
+    if (_pageController.hasClients && _pageController.page! > 0) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return PageView.builder(
-      controller: _pageController,
-      itemCount: widget.articles.length,
-      itemBuilder: (context, index) {
-        final articleDetail = widget.articles[index];
-        return ArticleContentView(
-          url: articleDetail.url!,
-          initialTitle: articleDetail.title,
-        );
-      },
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final backgroundColor = isDark ? AppTheme.backgroundDeep : Colors.white;
+
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      body: Consumer<DashboardProvider>(
+        builder: (context, provider, child) {
+          final flattened = provider.allArticlesFlattened;
+          
+          if (flattened.isEmpty) {
+            return const Center(child: Text('No articles available'));
+          }
+
+          // 🟢 CRITICAL: Find the correct starting index based on URL, not a passed-in stale index
+          if (!_isInitialized) {
+            int startIndex = 0;
+            if (widget.initialUrl != null) {
+              startIndex = flattened.indexWhere((item) {
+                final art = item['article'] as ArticleDetail;
+                return art.url == widget.initialUrl;
+              });
+              if (startIndex == -1) {
+                debugPrint('DEBUG: [ArticleReader] URL not found in flattened list: ${widget.initialUrl}');
+                startIndex = 0;
+              } else {
+                debugPrint('DEBUG: [ArticleReader] Found URL at index $startIndex: ${widget.initialUrl}');
+              }
+            }
+            
+            // Re-initialize controller with correct start page
+            _pageController = PageController(initialPage: startIndex);
+            _isInitialized = true;
+          }
+
+          return PageView.builder(
+            controller: _pageController,
+            scrollDirection: Axis.vertical,
+            itemCount: flattened.length,
+            itemBuilder: (context, index) {
+              final item = flattened[index];
+              final task = item['task'] as DashboardTask;
+              final article = item['article'] as ArticleDetail;
+              
+              if (article.url == null) return const SizedBox.shrink();
+
+              return ArticleContentView(
+                url: article.url!,
+                initialTitle: article.title,
+                onNextArticle: () => _goToNextPage(task, article, index, flattened.length),
+                onPreviousArticle: _goToPreviousPage,
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
@@ -56,8 +131,16 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
 class ArticleContentView extends StatefulWidget {
   final String url;
   final String? initialTitle;
+  final VoidCallback? onNextArticle;
+  final VoidCallback? onPreviousArticle;
 
-  const ArticleContentView({super.key, required this.url, this.initialTitle});
+  const ArticleContentView({
+    super.key, 
+    required this.url, 
+    this.initialTitle,
+    this.onNextArticle,
+    this.onPreviousArticle,
+  });
 
   @override
   State<ArticleContentView> createState() => _ArticleContentViewState();
@@ -67,6 +150,7 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
   final ArticleParserService _parserService = ArticleParserService();
   late Future<List<ArticleContent>> _articleFuture;
   SelectedContent? _selectedContent;
+  bool _isTransitioning = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -75,6 +159,22 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
   void initState() {
     super.initState();
     _articleFuture = _parserService.fetchAndParseArticle(widget.url);
+  }
+
+  void _handleNext() {
+    if (_isTransitioning) return;
+    _isTransitioning = true;
+    debugPrint('DEBUG: [ArticleReader] Triggering NEXT');
+    widget.onNextArticle?.call();
+    Future.delayed(const Duration(milliseconds: 1000), () => _isTransitioning = false);
+  }
+
+  void _handlePrevious() {
+    if (_isTransitioning) return;
+    _isTransitioning = true;
+    debugPrint('DEBUG: [ArticleReader] Triggering PREVIOUS');
+    widget.onPreviousArticle?.call();
+    Future.delayed(const Duration(milliseconds: 1000), () => _isTransitioning = false);
   }
 
   @override
@@ -154,98 +254,121 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
           final double hPadding = isPortrait ? 16.0 : 24.0;
           final topPadding = isLandscape ? 12.0 : 20.0;
 
-          // For the main sticky title, we determine the best one between the initial dashboard title 
-          // and the parsed title. We prefer the parsed one if it's more specific.
-          final mainDisplayTitle = _getBestTitle(widget.initialTitle, articles.first.title);
+          final mainDisplayTitle = _getBestTitle(widget.initialTitle, articles.first.title, articles.length > 1);
           
-          // Preserve the dashboard title as a subtitle if it's different from the main headline
           String? overrideSubtitle;
-          if (widget.initialTitle != null && 
-              widget.initialTitle!.isNotEmpty && 
-              widget.initialTitle != mainDisplayTitle) {
-            overrideSubtitle = widget.initialTitle;
-          }
-
-          debugPrint('DEBUG: [ArticleReader] initialTitle: ${widget.initialTitle}');
-          debugPrint('DEBUG: [ArticleReader] parsedTitle (articles.first.title): ${articles.first.title}');
-          debugPrint('DEBUG: [ArticleReader] Main sticky title: $mainDisplayTitle');
-          debugPrint('DEBUG: [ArticleReader] Computed Subtitle: $overrideSubtitle');
-          for (int i = 0; i < articles.length; i++) {
-            debugPrint('DEBUG: [ArticleReader] Article [$i] title (sub-heading): ${articles[i].title}');
+          if (articles.length == 1) {
+            if (widget.initialTitle != null && widget.initialTitle != mainDisplayTitle) {
+              overrideSubtitle = widget.initialTitle;
+            } else if (articles.first.title != mainDisplayTitle) {
+              overrideSubtitle = articles.first.title;
+            }
+          } else {
+            if (widget.initialTitle != null && widget.initialTitle != mainDisplayTitle) {
+              overrideSubtitle = widget.initialTitle;
+            }
           }
 
           return Scaffold(
             backgroundColor: backgroundColor,
-            body: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _StickyTitleDelegate(
-                    title: mainDisplayTitle,
-                    isDark: isDark,
-                    isTablet: isTablet,
-                    backgroundColor: backgroundColor,
-                    padding: hPadding,
-                    topPadding: mediaQuery.padding.top,
-                  ),
-                ),
+            body: SelectionArea(
+              onSelectionChanged: (content) => setState(() => _selectedContent = content),
+              contextMenuBuilder: (context, selectableRegionState) => 
+                  _buildContextMenu(context, selectableRegionState),
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (notification is ScrollUpdateNotification) {
+                    final metrics = notification.metrics;
+                    // In BouncingScrollPhysics, overscroll is reflected in the 'pixels' value
+                    final overscrollBottom = metrics.pixels - metrics.maxScrollExtent;
+                    final overscrollTop = -metrics.pixels;
 
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(hPadding, 4, hPadding, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (overrideSubtitle != null || articles.first.subtitle != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Text(
-                              overrideSubtitle ?? articles.first.subtitle!,
-                              textAlign: TextAlign.left,
-                              style: TextStyle(
-                                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.7),
-                                fontSize: isTablet ? 19 : 17,
-                                fontWeight: FontWeight.w400,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        if (articles.first.date != null)
-                          Text(
-                            articles.first.date!.toUpperCase(),
-                            textAlign: TextAlign.left,
-                            style: TextStyle(
-                              color: isDark ? Colors.white38 : Colors.black38,
-                              fontSize: isTablet ? 11 : 10,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                SliverPadding(
-                  padding: EdgeInsets.fromLTRB(hPadding, topPadding, hPadding, 80),
-                  sliver: SliverToBoxAdapter(
-                    child: SelectionArea(
-                      onSelectionChanged: (content) => setState(() => _selectedContent = content),
-                      contextMenuBuilder: (context, selectableRegionState) => 
-                          _buildContextMenu(context, selectableRegionState),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ...articles.map((article) => _buildArticleSection(context, article, isDark, isTablet, articles)),
-                          const SizedBox(height: 60),
-                          _buildFooter(context, articles.last, isDark),
-                        ],
+                    if (overscrollBottom > 80) {
+                      _handleNext();
+                    } else if (overscrollTop > 80) {
+                      _handlePrevious();
+                    }
+                  } else if (notification is ScrollEndNotification) {
+                    final metrics = notification.metrics;
+                    // Flick detection as secondary trigger
+                    if (metrics.atEdge) {
+                      final velocity = notification.dragDetails?.primaryVelocity ?? 0;
+                      if (metrics.pixels >= metrics.maxScrollExtent && velocity < -500) {
+                        _handleNext();
+                      } else if (metrics.pixels <= 0 && velocity > 500) {
+                        _handlePrevious();
+                      }
+                    }
+                  }
+                  return false;
+                },
+                child: CustomScrollView(
+                  physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                  slivers: [
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _StickyTitleDelegate(
+                        title: mainDisplayTitle,
+                        isDark: isDark,
+                        isTablet: isTablet,
+                        backgroundColor: backgroundColor,
+                        padding: hPadding,
+                        topPadding: mediaQuery.padding.top,
                       ),
                     ),
-                  ),
+
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(hPadding, 4, hPadding, 0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (overrideSubtitle != null || articles.first.subtitle != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  overrideSubtitle ?? articles.first.subtitle!,
+                                  textAlign: TextAlign.left,
+                                  style: TextStyle(
+                                    color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.7),
+                                    fontSize: isTablet ? 19 : 17,
+                                    fontWeight: FontWeight.w400,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            if (articles.first.date != null)
+                              Text(
+                                articles.first.date!.toUpperCase(),
+                                textAlign: TextAlign.left,
+                                style: TextStyle(
+                                  color: isDark ? Colors.white38 : Colors.black38,
+                                  fontSize: isTablet ? 11 : 10,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(hPadding, topPadding, hPadding, 80),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ...articles.map((article) => _buildArticleSection(context, article, isDark, isTablet, articles)),
+                            const SizedBox(height: 60),
+                            _buildFooter(context, articles.last, isDark),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           );
         },
@@ -254,14 +377,11 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
   }
 
   Widget _buildArticleSection(BuildContext context, ArticleContent article, bool isDark, bool isTablet, List<ArticleContent> allArticles) {
-    // For the main reader, we determine what title is currently shown in the sticky header
-    final mainDisplayTitle = _getBestTitle(widget.initialTitle, allArticles.first.title);
+    final mainDisplayTitle = _getBestTitle(widget.initialTitle, allArticles.first.title, allArticles.length > 1);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // If there are multiple articles, we show sub-titles for each
-        // But we HIDE the title if it matches the main sticky header to avoid duplication
         if (article.title.isNotEmpty && article.title != mainDisplayTitle)
           Padding(
             padding: const EdgeInsets.only(top: 40, bottom: 20),
@@ -304,7 +424,6 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
 
         ...article.content.map((block) => _buildContentBlock(context, block, isTablet)),
         
-        // Separator between articles
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 40),
           child: Center(
@@ -398,7 +517,28 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
               ),
             ),
           )),
-        const SizedBox(height: 20),
+        const SizedBox(height: 40),
+        Center(
+          child: Column(
+            children: [
+              Icon(Icons.keyboard_double_arrow_up_rounded, 
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3), 
+                size: 20
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'SWIPE UP FOR NEXT',
+                style: TextStyle(
+                  color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.2),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2.0,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 40),
         Center(
           child: Container(
             width: 40,
@@ -647,24 +787,24 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
     return Padding(
       padding: EdgeInsets.only(
         left: item.level * 20.0,
-        bottom: 8,
+        bottom: 10,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 6, right: 10),
-            child: Text(
-              item.level == 0 ? "•" : "◦",
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.primary,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+            padding: const EdgeInsets.only(top: 11, right: 12),
+            child: Container(
+              width: 8,
+              height: 1.5,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(1),
               ),
             ),
           ),
           Expanded(
-            child: _buildRichText(context, item.spans, isTablet, isDark, 15),
+            child: _buildRichText(context, item.spans, isTablet, isDark, 16),
           ),
         ],
       ),
@@ -709,8 +849,8 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
   }
 
   Widget _buildRichText(BuildContext context, List<InlineSpanData> spans, bool isTablet, bool isDark, double fontSize) {
-    return RichText(
-      text: TextSpan(
+    return Text.rich(
+      TextSpan(
         children: spans.map((s) {
           final color = _parseColor(s.color);
           return TextSpan(
@@ -798,9 +938,11 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
     );
   }
 
-  String _getBestTitle(String? initial, String parsed) {
-    // If parsed title exists and is NOT a generic placeholder or empty,
-    // we prefer it over the initial title from the dashboard.
+  String _getBestTitle(String? initial, String parsed, bool hasMultipleArticles) {
+    if (hasMultipleArticles && initial != null && initial.isNotEmpty) {
+      return initial;
+    }
+
     final genericPlaceholders = [
       'visionias article',
       'vajiram ias article',

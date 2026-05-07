@@ -24,7 +24,8 @@ class DateFormatter {
     } catch (_) {
       try {
         // Handle "31 MAY 2024" or "31 May 2024"
-        return DateFormat('dd MMM yyyy').parse(dateStr.toUpperCase());
+        // Force en_US locale to ensure month names are parsed correctly
+        return DateFormat('dd MMM yyyy', 'en_US').parse(dateStr.toUpperCase());
       } catch (_) {
         return DateTime(2000); // Old fallback
       }

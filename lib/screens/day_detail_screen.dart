@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../components/gradient_background.dart';
 import '../models/dashboard_data.dart';
+import '../providers/dashboard_provider.dart';
 import 'article_reader_screen.dart';
 import 'common_web_view_screen.dart';
 
@@ -11,55 +13,69 @@ class DayDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    
-    // Sort items: Completed at the end
-    final sortedQuizzes = List<QuizDetail>.from(task.quizzes)
-      ..sort((a, b) => a.isCompleted == b.isCompleted ? 0 : (a.isCompleted ? 1 : -1));
-    final sortedArticles = List<ArticleDetail>.from(task.articles)
-      ..sort((a, b) => a.isCompleted == b.isCompleted ? 0 : (a.isCompleted ? 1 : -1));
+    return Consumer<DashboardProvider>(
+      builder: (context, provider, child) {
+        final currentTask = _findLatestTask(provider, task.date) ?? task;
+        final theme = Theme.of(context);
+        final isDark = theme.brightness == Brightness.dark;
 
-    return GradientBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : Colors.black87, size: 20),
-            onPressed: () => Navigator.pop(context),
-          ),
-          centerTitle: true,
-          title: Text(
-            task.date,
-            style: TextStyle(
-              color: isDark ? Colors.white : Colors.black87,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.5,
+        // Sort items: Completed at the end
+        final sortedQuizzes = List<QuizDetail>.from(currentTask.quizzes)
+          ..sort((a, b) => a.isCompleted == b.isCompleted ? 0 : (a.isCompleted ? 1 : -1));
+        final sortedArticles = List<ArticleDetail>.from(currentTask.articles)
+          ..sort((a, b) => a.isCompleted == b.isCompleted ? 0 : (a.isCompleted ? 1 : -1));
+
+        return GradientBackground(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : Colors.black87, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
+              centerTitle: true,
+              title: Text(
+                currentTask.date,
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+            body: LayoutBuilder(
+              builder: (context, constraints) {
+                final isTablet = constraints.maxWidth >= 600;
+                final isLandscape = constraints.maxWidth > constraints.maxHeight && !isTablet;
+
+                if (isTablet) {
+                  return _buildTabletLayout(context, sortedQuizzes, sortedArticles, currentTask);
+                } else if (isLandscape) {
+                  return _buildLandscapeLayout(context, sortedQuizzes, sortedArticles, currentTask);
+                } else {
+                  return _buildPortraitLayout(context, sortedQuizzes, sortedArticles, currentTask);
+                }
+              },
             ),
           ),
-        ),
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final isTablet = constraints.maxWidth >= 600;
-            final isLandscape = constraints.maxWidth > constraints.maxHeight && !isTablet;
-
-            if (isTablet) {
-              return _buildTabletLayout(context, sortedQuizzes, sortedArticles);
-            } else if (isLandscape) {
-              return _buildLandscapeLayout(context, sortedQuizzes, sortedArticles);
-            } else {
-              return _buildPortraitLayout(context, sortedQuizzes, sortedArticles);
-            }
-          },
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildPortraitLayout(BuildContext context, List<QuizDetail> quizzes, List<ArticleDetail> articles) {
+  DashboardTask? _findLatestTask(DashboardProvider provider, String date) {
+    if (provider.data == null) return null;
+    try {
+      return provider.data!.allTasks.firstWhere((t) => t.date == date);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Widget _buildPortraitLayout(BuildContext context, List<QuizDetail> quizzes, List<ArticleDetail> articles, DashboardTask currentTask) {
     final groupedArticles = _groupArticlesBySource(articles);
     
     return SingleChildScrollView(
@@ -68,17 +84,17 @@ class DayDetailScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(context, 'ARTICLES'),
-          ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles)),
+          ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles, currentTask)),
           const SizedBox(height: 32),
           _buildSectionHeader(context, 'QUIZZES'),
-          ...quizzes.map((q) => _buildQuizCard(context, q)),
+          ...quizzes.map((q) => _buildQuizCard(context, q, currentTask)),
           const SizedBox(height: 40),
         ],
       ),
     );
   }
 
-  Widget _buildLandscapeLayout(BuildContext context, List<QuizDetail> quizzes, List<ArticleDetail> articles) {
+  Widget _buildLandscapeLayout(BuildContext context, List<QuizDetail> quizzes, List<ArticleDetail> articles, DashboardTask currentTask) {
     final groupedArticles = _groupArticlesBySource(articles);
 
     return Row(
@@ -91,7 +107,7 @@ class DayDetailScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildSectionHeader(context, 'ARTICLES'),
-                ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles)),
+                ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles, currentTask)),
               ],
             ),
           ),
@@ -103,7 +119,7 @@ class DayDetailScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildSectionHeader(context, 'QUIZZES'),
-                ...quizzes.map((q) => _buildQuizCard(context, q)),
+                ...quizzes.map((q) => _buildQuizCard(context, q, currentTask)),
               ],
             ),
           ),
@@ -121,7 +137,7 @@ class DayDetailScreen extends StatelessWidget {
     return groups;
   }
 
-  Widget _buildSourceGroup(BuildContext context, String sourceName, List<ArticleDetail> articlesInGroup, List<ArticleDetail> allArticles) {
+  Widget _buildSourceGroup(BuildContext context, String sourceName, List<ArticleDetail> articlesInGroup, List<ArticleDetail> allArticles, DashboardTask currentTask) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -137,17 +153,17 @@ class DayDetailScreen extends StatelessWidget {
             ),
           ),
         ),
-        ...articlesInGroup.map((a) => _buildArticleCard(context, a, allArticles)),
+        ...articlesInGroup.map((a) => _buildArticleCard(context, a, allArticles, currentTask)),
         const SizedBox(height: 16),
       ],
     );
   }
 
-  Widget _buildTabletLayout(BuildContext context, List<QuizDetail> quizzes, List<ArticleDetail> articles) {
+  Widget _buildTabletLayout(BuildContext context, List<QuizDetail> quizzes, List<ArticleDetail> articles, DashboardTask currentTask) {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1000),
-        child: _buildLandscapeLayout(context, quizzes, articles),
+        child: _buildLandscapeLayout(context, quizzes, articles, currentTask),
       ),
     );
   }
@@ -168,7 +184,7 @@ class DayDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildQuizCard(BuildContext context, QuizDetail quiz) {
+  Widget _buildQuizCard(BuildContext context, QuizDetail quiz, DashboardTask currentTask) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardColor = isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white;
     final borderColor = isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05);
@@ -200,6 +216,8 @@ class DayDetailScreen extends StatelessWidget {
                 builder: (context) => CommonWebViewScreen(
                   url: quiz.url!,
                   title: quiz.title,
+                  task: currentTask,
+                  quiz: quiz,
                 ),
               ),
             );
@@ -215,8 +233,8 @@ class DayDetailScreen extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: RichText(
-                  text: TextSpan(
+                child: Text.rich(
+                  TextSpan(
                     children: [
                       TextSpan(
                         text: quiz.source,
@@ -252,7 +270,7 @@ class DayDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildArticleCard(BuildContext context, ArticleDetail article, List<ArticleDetail> allArticles) {
+  Widget _buildArticleCard(BuildContext context, ArticleDetail article, List<ArticleDetail> allArticles, DashboardTask currentTask) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardColor = isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white;
 
@@ -270,13 +288,11 @@ class DayDetailScreen extends StatelessWidget {
       child: InkWell(
         onTap: () {
           if (article.url != null) {
-            final initialIndex = allArticles.indexOf(article);
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => ArticleReaderScreen(
-                  articles: allArticles,
-                  initialIndex: initialIndex != -1 ? initialIndex : 0,
+                  initialUrl: article.url,
                 ),
               ),
             );

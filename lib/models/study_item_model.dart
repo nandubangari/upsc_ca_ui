@@ -2,10 +2,12 @@ import 'dashboard_data.dart';
 
 class StudyItem {
   String title;
-  String? subtitle; // Added subtitle
+  String? subtitle;
   final String url;
   final String? date;
-  String? source; // Added source for grouping in dashboard
+  String? source;
+  bool isCompleted;
+  String? completedAt; // Added
 
   StudyItem({
     required this.title,
@@ -13,6 +15,8 @@ class StudyItem {
     required this.url,
     this.date,
     this.source,
+    this.isCompleted = false,
+    this.completedAt,
   });
 
   factory StudyItem.fromJson(Map<String, dynamic> json) {
@@ -25,6 +29,8 @@ class StudyItem {
       url: json['url'] as String,
       date: json['date'] as String?,
       source: json['source'] as String?,
+      isCompleted: json['isCompleted'] as bool? ?? false,
+      completedAt: json['completedAt'] as String?,
     );
   }
 
@@ -35,6 +41,8 @@ class StudyItem {
       'url': url,
       'date': date,
       'source': source,
+      'isCompleted': isCompleted,
+      'completedAt': completedAt,
     };
   }
 }

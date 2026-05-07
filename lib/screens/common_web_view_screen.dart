@@ -1,18 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../theme/app_theme.dart';
+import '../models/dashboard_data.dart';
+import '../providers/dashboard_provider.dart';
 
 class CommonWebViewScreen extends StatefulWidget {
   final String url;
   final String title;
+  final DashboardTask? task;
+  final QuizDetail? quiz;
 
   const CommonWebViewScreen({
     super.key,
     required this.url,
     required this.title,
+    this.task,
+    this.quiz,
   });
 
   @override
@@ -89,6 +96,30 @@ class _CommonWebViewScreenState extends State<CommonWebViewScreen> {
     }
   }
 
+  QuizDetail? _findLatestQuiz(DashboardProvider provider, String date, QuizDetail originalQuiz) {
+    if (provider.data == null) return null;
+    try {
+      final task = provider.data!.allTasks.firstWhere((t) => t.date == date);
+      return task.quizzes.firstWhere((q) => q.title == originalQuiz.title && q.source == originalQuiz.source);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _markAsDone(BuildContext context, DashboardProvider provider) async {
+    if (widget.task != null && widget.quiz != null) {
+      await provider.markQuizAsCompleted(widget.task!, widget.quiz!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Quiz marked as completed'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -130,6 +161,33 @@ class _CommonWebViewScreenState extends State<CommonWebViewScreen> {
           ],
         ),
         actions: [
+          if (widget.quiz != null && widget.task != null)
+            Consumer<DashboardProvider>(
+              builder: (context, provider, _) {
+                final currentQuiz = _findLatestQuiz(provider, widget.task!.date, widget.quiz!);
+                final isDone = currentQuiz?.isCompleted ?? widget.quiz!.isCompleted;
+
+                if (isDone) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Icon(Icons.check_circle_rounded, color: Colors.green, size: 20),
+                  );
+                }
+
+                return TextButton(
+                  onPressed: () => _markAsDone(context, provider),
+                  child: Text(
+                    'MARK AS DONE',
+                    style: TextStyle(
+                      color: primaryColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: Icon(Icons.refresh_rounded, size: 20, color: isDark ? Colors.white70 : Colors.black87),
             onPressed: () => _controller.reload(),

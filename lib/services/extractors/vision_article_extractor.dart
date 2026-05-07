@@ -241,11 +241,17 @@ class VisionIASArticleExtractorContent {
           );
         }
         
-        // Handle InfoBox: <figure class="table"> with h2/h3 and ul
+        // Handle InfoBox: <figure class="table"> with heading (h2/h3 or p>strong) and ul
         if (element.classes.contains('table')) {
-          final infoBox = _parseInfoBox(element);
-          if (infoBox != null) {
-            return ContentBlock(type: ContentBlockType.infobox, data: infoBox);
+          final hasList = element.querySelector('ul') != null;
+          final hasHeading = element.querySelector('h2, h3') != null || 
+                             element.querySelector('p strong') != null;
+          
+          if (hasList && hasHeading) {
+            final infoBox = _parseInfoBox(element);
+            if (infoBox != null) {
+              return ContentBlock(type: ContentBlockType.infobox, data: infoBox);
+            }
           }
         }
 
@@ -300,7 +306,7 @@ class VisionIASArticleExtractorContent {
 
     return spans
         .map((s) => InlineSpanData(s.text.replaceAll(RegExp(r'\s+'), ' '), isBold: s.isBold, color: s.color))
-        .where((s) => s.text.trim().isNotEmpty)
+        .where((s) => s.text.isNotEmpty)
         .toList();
   }
 
@@ -336,12 +342,22 @@ class VisionIASArticleExtractorContent {
   }
 
   InfoBoxData? _parseInfoBox(dom.Element figure) {
-    final headingElement = figure.querySelector('h2, h3');
     final ul = figure.querySelector('ul');
+    if (ul == null) return null;
 
-    if (headingElement == null || ul == null) return null;
+    String heading = '';
+    final h23 = figure.querySelector('h2, h3');
+    if (h23 != null && h23.text.trim().isNotEmpty) {
+      heading = h23.text.trim();
+    } else {
+      final pStrong = figure.querySelector('p strong');
+      if (pStrong != null && pStrong.text.trim().isNotEmpty) {
+        heading = pStrong.text.trim();
+      }
+    }
 
-    final heading = headingElement.text.trim();
+    if (heading.isEmpty) return null;
+
     final items = <InfoItem>[];
 
     void parseList(dom.Element ul, int level) {

@@ -175,8 +175,8 @@ class VajiramArticleExtractor implements BaseArticleExtractor {
           color = match?.group(1);
         }
 
-        final text = node.text.trim();
-        if (text.isNotEmpty) {
+        final text = node.text.replaceAll(RegExp(r'\s+'), ' ');
+        if (text.isNotEmpty && text != ' ') {
           spans.add(
             InlineSpanData(
               text,
@@ -186,7 +186,7 @@ class VajiramArticleExtractor implements BaseArticleExtractor {
           );
         }
       } else {
-        final text = node.text?.trim() ?? '';
+        final text = node.text?.replaceAll(RegExp(r'\s+'), ' ') ?? '';
         if (text.isNotEmpty) {
           spans.add(InlineSpanData(text));
         }

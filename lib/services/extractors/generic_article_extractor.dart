@@ -107,7 +107,7 @@ class GenericArticleExtractor implements BaseArticleExtractor {
   void _parseNodesRecursive(dom.Element node, List<ContentBlock> blocks) {
     for (var child in node.children) {
       if (child.localName == 'p') {
-        final text = child.text.trim();
+        final text = child.text.replaceAll(RegExp(r'\s+'), ' ').trim();
         if (text.length > 20) { // Avoid tiny snippets or UI noise
           blocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(text)]));
         }
@@ -143,7 +143,7 @@ class GenericArticleExtractor implements BaseArticleExtractor {
         liClone.querySelector('ol')?.remove();
 
         items.add(ListItem(
-          spans: [InlineSpanData(liClone.text.trim())],
+          spans: [InlineSpanData(liClone.text.replaceAll(RegExp(r'\s+'), ' ').trim())],
           children: children,
         ));
       }

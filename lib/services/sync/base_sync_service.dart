@@ -25,7 +25,7 @@ abstract class BaseSyncService {
     if (user == null) throw Exception("User must be logged in to sync");
 
     final now = DateTime.now();
-    final tenDaysAgo = now.subtract(const Duration(days: 10));
+    final fiveDaysAgo = now.subtract(const Duration(days: 5));
 
     // Iterate through months from startDate to now
     DateTime currentMonth = DateTime(startDate.year, startDate.month);
@@ -40,7 +40,7 @@ abstract class BaseSyncService {
       // We fetch if:
       // a) No data exists in Firestore for this month
       // b) The month is the current month
-      // c) The month contains dates within the last 10 days
+      // c) The month contains dates within the last 5 days
       // d) forceRefresh is enabled
       bool needsFetch = existingData.isEmpty || forceRefresh;
       
@@ -50,7 +50,7 @@ abstract class BaseSyncService {
           needsFetch = true;
         } else {
           final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
-          if (monthEnd.isAfter(tenDaysAgo)) {
+          if (monthEnd.isAfter(fiveDaysAgo)) {
             needsFetch = true;
           }
         }
@@ -149,18 +149,6 @@ abstract class BaseSyncService {
         .collection('months')
         .doc(docId);
 
-    if (forceRefresh) {
-      // If force refreshing, we want to clear the specific dates we just fetched 
-      // so we can overwrite them with fresh data.
-      for (var daily in incoming) {
-        if (existing.containsKey(daily.date)) {
-          existing.remove(daily.date);
-          changed = true;
-        }
-      }
-      print('DEBUG: [$sourceName] Force Refresh - Overwriting data for ${incoming.length} dates');
-    }
-
     for (var daily in incoming) {
       final date = daily.date;
       final existingItems = existing[date] ?? [];
@@ -223,9 +211,22 @@ abstract class BaseSyncService {
         for (var quiz in daily.quizzes) {
           final quizId = quiz.title.hashCode.toString();
           final quizRef = monthRef.collection('quizzes').doc(quizId);
+          
+          // PRESERVE COMPLETION: Only update fields if they changed, 
+          // and DON'T overwrite isCompleted/completedAt if they already exist in Firestore.
+          // Note: quizBatch.set with merge: true handles adding new fields, 
+          // but we need to be careful about what we send.
+          
+          // Actually, the current approach of setting the whole quiz object with merge: true
+          // will overwrite 'isCompleted' if 'incoming' has it as false.
+          // We should fetch existing completion status if possible, or just merge selectively.
+          
           quizBatch.set(quizRef, {
-            ...quiz.toJson(),
-            'date': date,
+            'source': quiz.source,
+            'title': quiz.title,
+            if (quiz.url != null) 'url': quiz.url,
+            // DO NOT set isCompleted here unless it's a new quiz
+            // Firestore merge: true will keep existing isCompleted if we don't send it.
           }, SetOptions(merge: true));
         }
         await quizBatch.commit();
@@ -241,6 +242,86 @@ abstract class BaseSyncService {
       });
 
       await monthRef.set(toSave, SetOptions(merge: true));
+    }
+  }
+
+  /// Updates the completion status of a specific article in Firestore
+  Future<void> updateArticleStatus(String isoDate, String url, bool isCompleted, {String? completedAt}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final date = DateTime.tryParse(isoDate);
+    if (date == null) return;
+
+    final docId = '${date.year}_${date.month.toString().padLeft(2, '0')}';
+    final monthRef = _db
+        .collection('users')
+        .doc(user.uid)
+        .collection('synced_articles')
+        .doc(sourceId)
+        .collection('months')
+        .doc(docId);
+
+    try {
+      final doc = await monthRef.get();
+      if (!doc.exists) return;
+
+      final data = doc.data()!;
+      if (!data.containsKey(isoDate)) return;
+
+      final List<dynamic> itemsJson = data[isoDate];
+      final items = itemsJson.map((i) => StudyItem.fromJson(i)).toList();
+
+      bool found = false;
+      for (var item in items) {
+        if (item.url == url) {
+          item.isCompleted = isCompleted;
+          if (completedAt != null) {
+            item.completedAt = completedAt;
+          }
+          found = true;
+          break;
+        }
+      }
+
+      if (found) {
+        data[isoDate] = items.map((i) => i.toJson()).toList();
+        await monthRef.set(data, SetOptions(merge: true));
+        print('DEBUG: [$sourceName] Updated completion status for $url to $isCompleted');
+      }
+    } catch (e) {
+      print('ERROR: [$sourceName] Failed to update article status: $e');
+    }
+  }
+
+  /// Updates the completion status of a specific quiz in Firestore
+  Future<void> updateQuizStatus(String isoDate, String quizTitle, bool isCompleted, {String? completedAt}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final date = DateTime.tryParse(isoDate);
+    if (date == null) return;
+
+    final docId = '${date.year}_${date.month.toString().padLeft(2, '0')}';
+    final monthRef = _db
+        .collection('users')
+        .doc(user.uid)
+        .collection('synced_articles')
+        .doc(sourceId)
+        .collection('months')
+        .doc(docId);
+
+    try {
+      final quizId = quizTitle.hashCode.toString();
+      final quizRef = monthRef.collection('quizzes').doc(quizId);
+      
+      await quizRef.update({
+        'isCompleted': isCompleted,
+        if (completedAt != null) 'completedAt': completedAt,
+      });
+      print('DEBUG: [$sourceName] Updated quiz status for $quizTitle to $isCompleted (at $completedAt)');
+    } catch (e) {
+      print('ERROR: [$sourceName] Failed to update quiz status: $e');
     }
   }
 

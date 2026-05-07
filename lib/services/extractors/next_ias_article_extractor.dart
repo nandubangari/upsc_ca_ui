@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as parser;
 import 'package:html/dom.dart' as dom;
@@ -38,6 +39,13 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
     // 🔴 CLEANUP
     container.querySelectorAll('script, style, .social-share, .related-posts').forEach((e) => e.remove());
 
+    // Detect Multi-Article Mode
+    final articleHeadings = container.querySelectorAll('h2.wp-block-heading.has-text-align-center');
+    if (articleHeadings.length > 1) {
+      print('DEBUG: [NextIAS Extractor] Detected multi-article page with ${articleHeadings.length} articles');
+      return _parseMultiArticlePage(container, articleHeadings, url);
+    }
+
     // 1. Title
     final title = document.querySelector('h1')?.text.trim() ?? 
                   document.querySelector('.page-title')?.text.trim() ??
@@ -57,6 +65,55 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
       content: contentBlocks,
       source: SourceInfo(text: 'NextIAS', url: url),
     )];
+  }
+
+  Future<List<ArticleContent>> _parseMultiArticlePage(dom.Element container, List<dom.Element> headings, String url) async {
+    final List<ArticleContent> results = [];
+    
+    for (int i = 0; i < headings.length; i++) {
+      _stopParsing = false; // Reset state for each sub-article
+      final heading = headings[i];
+      final title = heading.text.trim();
+      final contentBlocks = <ContentBlock>[];
+      
+      dom.Node? next = _getNextSibling(heading);
+      while (next != null) {
+        if (next is dom.Element) {
+          // Stop if we hit the next article heading
+          if (next.localName == 'h2' && next.classes.contains('has-text-align-center')) {
+            break;
+          }
+          // Stop if we hit navigation/footer elements
+          if (next.classes.contains('clearfix') || 
+              next.classes.contains('post-navigation') ||
+              next.classes.contains('related-posts')) {
+            break;
+          }
+        }
+        
+        _parseNode(next, contentBlocks);
+        next = _getNextSibling(next);
+      }
+      
+      if (contentBlocks.isNotEmpty) {
+        results.add(ArticleContent(
+          title: title,
+          content: contentBlocks,
+          source: SourceInfo(text: 'NextIAS', url: url),
+        ));
+      }
+    }
+    
+    return results;
+  }
+
+  dom.Node? _getNextSibling(dom.Node node) {
+    final parent = node.parentNode;
+    if (parent == null) return null;
+    final siblings = parent.nodes;
+    final index = siblings.indexOf(node);
+    if (index == -1 || index >= siblings.length - 1) return null;
+    return siblings[index + 1];
   }
 
   void _parseNode(dom.Node node, List<ContentBlock> blocks) {
@@ -84,8 +141,10 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
         _stopParsing = true;
         return;
       }
-      if (text.isNotEmpty) {
-        blocks.add(ContentBlock(type: ContentBlockType.p, data: [InlineSpanData(text)]));
+      
+      final spans = _parseInline(element);
+      if (spans.isNotEmpty) {
+        blocks.add(ContentBlock(type: ContentBlockType.p, data: spans));
       }
     } 
     // Handle Images (wp-block-image style)
@@ -187,17 +246,52 @@ class NextIASArticleExtractor implements BaseArticleExtractor {
           children = _parseList(nestedList);
         }
 
-        final liClone = li.clone(true);
-        liClone.querySelector('ul')?.remove();
-        liClone.querySelector('ol')?.remove();
-
         items.add(ListItem(
-          spans: [InlineSpanData(_cleanText(liClone.text))],
+          spans: _parseInline(li),
           children: children,
         ));
       }
     }
     return items;
+  }
+
+  List<InlineSpanData> _parseInline(dom.Element element) {
+    final spans = <InlineSpanData>[];
+
+    void traverse(dom.Node n, {bool isBold = false, String? color}) {
+      if (n is dom.Text) {
+        final text = n.text;
+        if (text.isNotEmpty) {
+          spans.add(InlineSpanData(text, isBold: isBold, color: color));
+        }
+      } else if (n is dom.Element) {
+        if (n.localName == 'ul' || n.localName == 'ol' || n.localName == 'br') return;
+
+        bool currentBold = isBold || n.localName == 'strong' || n.localName == 'b';
+        
+        String? currentColor = color;
+        final style = n.attributes['style'];
+        if (style != null && style.contains('color')) {
+          final match = RegExp(r'color:\s*([^;]+)').firstMatch(style);
+          if (match != null) currentColor = match.group(1);
+        }
+
+        for (final child in n.nodes) {
+          traverse(child, isBold: currentBold, color: currentColor);
+        }
+      }
+    }
+
+    // Process nodes, but skip nested lists as they are handled by _parseList
+    for (final child in element.nodes) {
+      if (child is dom.Element && (child.localName == 'ul' || child.localName == 'ol')) continue;
+      traverse(child);
+    }
+
+    return spans
+        .map((s) => InlineSpanData(s.text.replaceAll(RegExp(r'\s+'), ' '), isBold: s.isBold, color: s.color))
+        .where((s) => s.text.isNotEmpty)
+        .toList();
   }
 
   String _cleanText(String text) {

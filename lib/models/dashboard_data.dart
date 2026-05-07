@@ -56,12 +56,14 @@ class QuizDetail {
   final String title;
   final bool isCompleted;
   final String? url;
+  final String? completedAt;
 
   QuizDetail({
     required this.source,
     required this.title,
     this.isCompleted = false,
     this.url,
+    this.completedAt,
   });
 
   factory QuizDetail.fromJson(Map<String, dynamic> json) {
@@ -70,6 +72,7 @@ class QuizDetail {
       title: json['title'] as String,
       isCompleted: json['isCompleted'] as bool? ?? false,
       url: json['url'] as String?,
+      completedAt: json['completedAt'] as String?,
     );
   }
 
@@ -79,16 +82,34 @@ class QuizDetail {
       'title': title,
       'isCompleted': isCompleted,
       'url': url,
+      'completedAt': completedAt,
     };
+  }
+
+  QuizDetail copyWith({
+    String? source,
+    String? title,
+    bool? isCompleted,
+    String? url,
+    String? completedAt,
+  }) {
+    return QuizDetail(
+      source: source ?? this.source,
+      title: title ?? this.title,
+      isCompleted: isCompleted ?? this.isCompleted,
+      url: url ?? this.url,
+      completedAt: completedAt ?? this.completedAt,
+    );
   }
 }
 
 class ArticleDetail {
   final String title;
-  final String? subtitle; // Added subtitle
+  final String? subtitle;
   final bool isCompleted;
   final String? url;
-  final String? source; // Added source for grouping
+  final String? source;
+  final String? completedAt; // Added to track when it was read
 
   ArticleDetail({
     required this.title,
@@ -96,6 +117,7 @@ class ArticleDetail {
     this.isCompleted = false,
     this.url,
     this.source,
+    this.completedAt,
   });
 
   factory ArticleDetail.fromJson(Map<String, dynamic> json) {
@@ -108,6 +130,7 @@ class ArticleDetail {
       isCompleted: json['isCompleted'] as bool? ?? false,
       url: json['url'] as String?,
       source: json['source'] as String?,
+      completedAt: json['completedAt'] as String?,
     );
   }
 
@@ -118,7 +141,26 @@ class ArticleDetail {
       'isCompleted': isCompleted,
       'url': url,
       'source': source,
+      'completedAt': completedAt,
     };
+  }
+
+  ArticleDetail copyWith({
+    String? title,
+    String? subtitle,
+    bool? isCompleted,
+    String? url,
+    String? source,
+    String? completedAt,
+  }) {
+    return ArticleDetail(
+      title: title ?? this.title,
+      subtitle: subtitle ?? this.subtitle,
+      isCompleted: isCompleted ?? this.isCompleted,
+      url: url ?? this.url,
+      source: source ?? this.source,
+      completedAt: completedAt ?? this.completedAt,
+    );
   }
 }
 
@@ -192,20 +234,122 @@ class DashboardTask {
       'articles': articles.map((a) => a.toJson()).toList(),
     };
   }
+
+  bool get isFullyCompleted => (totalArticles + totalQuizzes) > 0 && 
+                               (articlesDone + quizzesDone) == (totalArticles + totalQuizzes);
+
+  DateTime get isoDate {
+    try {
+      return DateTime.parse(_toIsoDate(date));
+    } catch (_) {
+      return DateTime(2000);
+    }
+  }
+
+  String _toIsoDate(String dateStr) {
+    try {
+      return DateTime.parse(dateStr).toIso8601String().split('T')[0];
+    } catch (_) {
+      try {
+        final parts = dateStr.split(' ');
+        if (parts.length == 3) {
+          final day = parts[0].padLeft(2, '0');
+          final monthStr = parts[1].toUpperCase();
+          final year = parts[2];
+          final months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+          final monthIdx = months.indexOf(monthStr) + 1;
+          if (monthIdx > 0) return '$year-${monthIdx.toString().padLeft(2, '0')}-$day';
+        }
+      } catch (_) {}
+      return "0000-00-00";
+    }
+  }
+
+  DashboardTask copyWith({
+    String? date,
+    int? articlesDone,
+    int? totalArticles,
+    int? quizzesDone,
+    int? totalQuizzes,
+    TaskType? type,
+    int? dueDays,
+    String? lastCompleted,
+    List<RepetitionData>? repetitions,
+    List<QuizDetail>? quizzes,
+    List<ArticleDetail>? articles,
+  }) {
+    return DashboardTask(
+      date: date ?? this.date,
+      articlesDone: articlesDone ?? this.articlesDone,
+      totalArticles: totalArticles ?? this.totalArticles,
+      quizzesDone: quizzesDone ?? this.quizzesDone,
+      totalQuizzes: totalQuizzes ?? this.totalQuizzes,
+      type: type ?? this.type,
+      dueDays: dueDays ?? this.dueDays,
+      lastCompleted: lastCompleted ?? this.lastCompleted,
+      repetitions: repetitions ?? this.repetitions,
+      quizzes: quizzes ?? this.quizzes,
+      articles: articles ?? this.articles,
+    );
+  }
 }
 
 class DashboardData {
   final int daysLeft;
   final List<DashboardTask> todayTasks;
+  final List<DashboardTask> inProgressTasks;
   final List<DashboardTask> notStartedTasks;
   final List<DashboardTask> completedTasks;
 
   DashboardData({
     required this.daysLeft,
     required this.todayTasks,
+    this.inProgressTasks = const [],
     required this.notStartedTasks,
     required this.completedTasks,
   });
+
+  /// 🟢 Returns all tasks across all sections, sorted by date (latest first).
+  List<DashboardTask> get allTasks {
+    final List<DashboardTask> combined = [
+      ...todayTasks,
+      ...inProgressTasks,
+      ...notStartedTasks,
+      ...completedTasks,
+    ];
+    
+    // Sort by date (latest first) to ensure consistent ordering everywhere
+    combined.sort((a, b) {
+      final isoA = _toIso(a.date);
+      final isoB = _toIso(b.date);
+      return isoB.compareTo(isoA);
+    });
+    
+    return combined;
+  }
+
+  String _toIso(String dateStr) {
+    try {
+      return DateTime.parse(dateStr).toIso8601String().split('T')[0];
+    } catch (_) {
+      try {
+        // Handle "DD MMM YYYY" format
+        final parts = dateStr.split(' ');
+        if (parts.length == 3) {
+          final day = parts[0].padLeft(2, '0');
+          final monthStr = parts[1].toUpperCase();
+          final year = parts[2];
+          
+          final months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+          final monthIdx = months.indexOf(monthStr) + 1;
+          if (monthIdx > 0) {
+            return '$year-${monthIdx.toString().padLeft(2, '0')}-$day';
+          }
+        }
+      } catch (_) {}
+      return "0000-00-00";
+    }
+  }
 
   factory DashboardData.fromJson(Map<String, dynamic> json) {
     return DashboardData(
@@ -213,6 +357,11 @@ class DashboardData {
       todayTasks: (json['todayTasks'] as List)
           .map((t) => DashboardTask.fromJson(t as Map<String, dynamic>))
           .toList(),
+      inProgressTasks: json['inProgressTasks'] != null
+          ? (json['inProgressTasks'] as List)
+              .map((t) => DashboardTask.fromJson(t as Map<String, dynamic>))
+              .toList()
+          : [],
       notStartedTasks: (json['notStartedTasks'] as List)
           .map((t) => DashboardTask.fromJson(t as Map<String, dynamic>))
           .toList(),
@@ -226,6 +375,7 @@ class DashboardData {
     return {
       'daysLeft': daysLeft,
       'todayTasks': todayTasks.map((t) => t.toJson()).toList(),
+      'inProgressTasks': inProgressTasks.map((t) => t.toJson()).toList(),
       'notStartedTasks': notStartedTasks.map((t) => t.toJson()).toList(),
       'completedTasks': completedTasks.map((t) => t.toJson()).toList(),
     };
