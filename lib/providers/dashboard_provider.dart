@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/dashboard_data.dart';
 import '../models/profile_data.dart';
+import '../models/study_item_model.dart';
 import '../services/dashboard_service.dart';
 import '../services/synced_dashboard_service.dart';
 import '../services/sync/vajiram_sync_service.dart';
@@ -10,6 +11,7 @@ import '../services/sync/insights_ias_sync_service.dart';
 import '../services/sync/chahal_sync_service.dart';
 import '../services/sync/drishti_sync_service.dart';
 import '../services/sync/insights_quiz_sync_service.dart';
+import '../services/sync/user_task_sync_service.dart';
 import '../services/profile_service.dart';
 import '../services/sync/base_sync_service.dart';
 import '../core/utils/date_formatter.dart';
@@ -30,6 +32,7 @@ class DashboardProvider with ChangeNotifier {
   final ChahalSyncService _chahalSync = ChahalSyncService();
   final DrishtiSyncService _drishtiSync = DrishtiSyncService();
   final InsightsQuizSyncService _insightsQuizSync = InsightsQuizSyncService();
+  final UserTaskSyncService _userTaskSync = UserTaskSyncService();
 
   DashboardData? get data => _data;
   bool get isLoading => _isLoading;
@@ -219,6 +222,31 @@ class DashboardProvider with ChangeNotifier {
     }
   }
 
+  /// Adds a custom task and reloads
+  Future<void> addCustomTask(String date, String source, String title, String? url) async {
+    print('DEBUG: [DashboardProvider] addCustomTask called with date: "$date"');
+    final parsedDate = DateFormatter.parseAny(date);
+    final isoDate = DateFormatter.toIso(parsedDate);
+    print('DEBUG: [DashboardProvider] Parsed date to ISO: "$isoDate"');
+
+    final item = StudyItem(
+      title: title,
+      source: source,
+      url: url ?? "custom_${DateTime.now().millisecondsSinceEpoch}",
+      date: isoDate,
+      isCustom: true,
+    );
+
+    try {
+      await _userTaskSync.addCustomTask(isoDate, item);
+      // Explicitly reload data to reflect the new task immediately
+      await loadDashboardData();
+    } catch (e) {
+      _error = "Failed to add task: $e";
+      notifyListeners();
+    }
+  }
+
   /// Updates the target exam date.
   Future<void> updateExamDate(DateTime date) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -290,13 +318,18 @@ class DashboardProvider with ChangeNotifier {
 
     // 2. Sync to Firestore in the background
     BaseSyncService? targetService;
-    final sourceName = article.source;
-    if (sourceName != null) {
-      if (_service is SyncedDashboardService) {
-        for (var s in (_service as SyncedDashboardService).syncServices) {
-          if (s.sourceName == sourceName) {
-            targetService = s;
-            break;
+    
+    if (article.isCustom) {
+      targetService = _userTaskSync;
+    } else {
+      final sourceName = article.source;
+      if (sourceName != null) {
+        if (_service is SyncedDashboardService) {
+          for (var s in (_service as SyncedDashboardService).syncServices) {
+            if (s.sourceName == sourceName) {
+              targetService = s;
+              break;
+            }
           }
         }
       }
@@ -386,7 +419,6 @@ class DashboardProvider with ChangeNotifier {
 
     // 2. Prepare categorization
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
     
     // We need daysLeft for quota calculation
     final int daysLeft = _data!.daysLeft;

@@ -7,6 +7,7 @@ class StudyItem {
   final String? date;
   String? source;
   bool isCompleted;
+  bool isCustom;
   String? completedAt; // Added
 
   StudyItem({
@@ -16,6 +17,7 @@ class StudyItem {
     this.date,
     this.source,
     this.isCompleted = false,
+    this.isCustom = false,
     this.completedAt,
   });
 
@@ -30,6 +32,7 @@ class StudyItem {
       date: json['date'] as String?,
       source: json['source'] as String?,
       isCompleted: json['isCompleted'] as bool? ?? false,
+      isCustom: json['isCustom'] as bool? ?? false,
       completedAt: json['completedAt'] as String?,
     );
   }
@@ -42,6 +45,7 @@ class StudyItem {
       'date': date,
       'source': source,
       'isCompleted': isCompleted,
+      'isCustom': isCustom,
       'completedAt': completedAt,
     };
   }

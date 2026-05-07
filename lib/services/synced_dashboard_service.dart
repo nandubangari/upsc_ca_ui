@@ -10,6 +10,7 @@ import 'sync/insights_ias_sync_service.dart';
 import 'sync/chahal_sync_service.dart';
 import 'sync/drishti_sync_service.dart';
 import 'sync/insights_quiz_sync_service.dart';
+import 'sync/user_task_sync_service.dart';
 import 'profile_service.dart';
 import '../core/utils/date_formatter.dart';
 
@@ -23,6 +24,7 @@ class SyncedDashboardService implements DashboardService {
     ChahalSyncService(),
     DrishtiSyncService(),
     InsightsQuizSyncService(),
+    UserTaskSyncService(),
   ];
   final ProfileService _profileService = ProfileService();
 
@@ -56,9 +58,11 @@ class SyncedDashboardService implements DashboardService {
       final String sourceName = service.sourceName;
 
       sourceArticles.forEach((date, items) {
-        // Set source for each item
+        // Set source for each item (if not already set for custom tasks)
         for (var item in items) {
-          item.source = sourceName;
+          if (!item.isCustom || item.source == null) {
+            item.source = sourceName;
+          }
         }
 
         // Only include articles on or after the profile start date
@@ -106,6 +110,7 @@ class SyncedDashboardService implements DashboardService {
           subtitle: item.subtitle,
           url: item.url,
           isCompleted: item.isCompleted,
+          isCustom: item.isCustom,
           source: item.source,
           completedAt: item.completedAt,
         );
@@ -158,6 +163,7 @@ class SyncedDashboardService implements DashboardService {
                 subtitle: updatedSubtitle,
                 url: incoming.url,
                 isCompleted: incoming.isCompleted, // Use incoming completion
+                isCustom: incoming.isCustom || existing.isCustom,
                 source: incoming.source ?? existing.source,
                 completedAt: incoming.completedAt,
               );
@@ -305,7 +311,7 @@ class SyncedDashboardService implements DashboardService {
                   totalQuizzes: task.quizzes.length,
                   type: TaskType.revision,
                   dueDays: dueDays,
-                  articles: task.articles.map((a) => a.copyWith(isCompleted: false, completedAt: null)).toList(),
+                  articles: task.articles.map((a) => a.copyWith(isCompleted: false, isCustom: a.isCustom, completedAt: null)).toList(),
                   quizzes: task.quizzes.map((q) => q.copyWith(isCompleted: false, completedAt: null)).toList(),
                 );
               }
@@ -317,7 +323,6 @@ class SyncedDashboardService implements DashboardService {
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final todayIso = DateFormatter.toIso(today);
 
     // Calculate days left from exam date
     int daysLeft = 0;
@@ -327,52 +332,44 @@ class SyncedDashboardService implements DashboardService {
       if (daysLeft < 0) daysLeft = 0;
     }
 
-    // 5. Categorize Tasks with Dynamic Quota for Today
-    final List<DashboardTask> allTasksSorted = taskMap.values.toList()
-      ..sort((a, b) => a.isoDate.compareTo(b.isoDate)); // Oldest first for backlog priority
+    // 5. Categorize Tasks
+    final List<DashboardTask> allTasks = taskMap.values.toList();
 
     final List<DashboardTask> todayTasks = [];
     final List<DashboardTask> inProgressTasks = [];
     final List<DashboardTask> notStartedTasks = [];
     final List<DashboardTask> completedTasks = [];
 
-    // Separate completed and uncompleted
-    final List<DashboardTask> uncompleted = [];
-    for (var task in allTasksSorted) {
+    for (var task in allTasks) {
       if (task.isFullyCompleted) {
         completedTasks.add(task);
-      } else {
-        uncompleted.add(task);
+        continue;
       }
-    }
 
-    // Calculate Quota
-    // quota = max(3, ceil(total_uncompleted / days_left))
-    final int quota = daysLeft > 0 
-        ? (uncompleted.length / daysLeft).ceil().clamp(3, uncompleted.length)
-        : uncompleted.length;
+      final isToday = task.isoDate.isAtSameMomentAs(today);
+      final isPast = task.isoDate.isBefore(today);
+      final isFuture = task.isoDate.isAfter(today);
+      final isStarted = (task.articlesDone + task.quizzesDone) > 0;
 
-    print('DEBUG: [Dashboard] Days Left: $daysLeft, Uncompleted Tasks: ${uncompleted.length}, Quota: $quota');
-
-    // Assign tasks based on quota and status
-    int assignedToToday = 0;
-    for (var task in uncompleted) {
-      final bool isStarted = (task.articlesDone + task.quizzesDone) > 0;
-      
-      if (assignedToToday < quota) {
+      if (isToday) {
         todayTasks.add(task);
-        assignedToToday++;
       } else if (isStarted) {
-        // Surplus started tasks stay in "In Progress"
         inProgressTasks.add(task);
+      } else if (isPast) {
+        // Uncompleted tasks from the past (Backlog) go to Today's Tasks
+        // to ensure they are seen and completed.
+        todayTasks.add(task);
       } else {
+        // Future unstarted tasks
         notStartedTasks.add(task);
       }
     }
 
-    // Sort sections for display (usually latest first looks better in history, 
-    // but today's tasks should probably be oldest first to encourage clearing backlog)
-    // We'll keep history latest first.
+    // Sort sections: Latest first for better visibility
+    // Today's Tasks: Most recent uncompleted on top
+    todayTasks.sort((a, b) => b.isoDate.compareTo(a.isoDate));
+    inProgressTasks.sort((a, b) => b.isoDate.compareTo(a.isoDate));
+    notStartedTasks.sort((a, b) => b.isoDate.compareTo(a.isoDate));
     completedTasks.sort((a, b) => b.isoDate.compareTo(a.isoDate));
 
     return DashboardData(

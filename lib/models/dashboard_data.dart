@@ -107,6 +107,7 @@ class ArticleDetail {
   final String title;
   final String? subtitle;
   final bool isCompleted;
+  final bool isCustom;
   final String? url;
   final String? source;
   final String? completedAt; // Added to track when it was read
@@ -115,6 +116,7 @@ class ArticleDetail {
     required this.title,
     this.subtitle,
     this.isCompleted = false,
+    this.isCustom = false,
     this.url,
     this.source,
     this.completedAt,
@@ -128,6 +130,7 @@ class ArticleDetail {
       title: json['title'] as String,
       subtitle: subtitle,
       isCompleted: json['isCompleted'] as bool? ?? false,
+      isCustom: json['isCustom'] as bool? ?? false,
       url: json['url'] as String?,
       source: json['source'] as String?,
       completedAt: json['completedAt'] as String?,
@@ -139,6 +142,7 @@ class ArticleDetail {
       'title': title,
       'subtitle': subtitle,
       'isCompleted': isCompleted,
+      'isCustom': isCustom,
       'url': url,
       'source': source,
       'completedAt': completedAt,
@@ -149,6 +153,7 @@ class ArticleDetail {
     String? title,
     String? subtitle,
     bool? isCompleted,
+    bool? isCustom,
     String? url,
     String? source,
     String? completedAt,
@@ -157,6 +162,7 @@ class ArticleDetail {
       title: title ?? this.title,
       subtitle: subtitle ?? this.subtitle,
       isCompleted: isCompleted ?? this.isCompleted,
+      isCustom: isCustom ?? this.isCustom,
       url: url ?? this.url,
       source: source ?? this.source,
       completedAt: completedAt ?? this.completedAt,

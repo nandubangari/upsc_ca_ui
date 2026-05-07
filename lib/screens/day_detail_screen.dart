@@ -35,6 +35,13 @@ class DayDetailScreen extends StatelessWidget {
                 icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : Colors.black87, size: 20),
                 onPressed: () => Navigator.pop(context),
               ),
+              actions: [
+                IconButton(
+                  icon: Icon(Icons.add_rounded, color: isDark ? Colors.white : Colors.black87, size: 24),
+                  onPressed: () => _showAddTaskDialog(context, provider, currentTask.date),
+                ),
+                const SizedBox(width: 8),
+              ],
               centerTitle: true,
               title: Text(
                 currentTask.date,
@@ -288,14 +295,28 @@ class DayDetailScreen extends StatelessWidget {
       child: InkWell(
         onTap: () {
           if (article.url != null) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ArticleReaderScreen(
-                  initialUrl: article.url,
+            if (article.isCustom) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => CommonWebViewScreen(
+                    url: article.url!,
+                    title: article.title,
+                    task: currentTask,
+                    article: article,
+                  ),
                 ),
-              ),
-            );
+              );
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ArticleReaderScreen(
+                    initialUrl: article.url,
+                  ),
+                ),
+              );
+            }
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('No URL available for this article')),
@@ -335,6 +356,71 @@ class DayDetailScreen extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showAddTaskDialog(BuildContext context, DashboardProvider provider, String date) {
+    final sourceController = TextEditingController();
+    final titleController = TextEditingController();
+    final urlController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Custom Task', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: sourceController,
+                  decoration: const InputDecoration(
+                    labelText: 'Source*',
+                    hintText: 'e.g., The Hindu, IE, YouTube',
+                  ),
+                  validator: (v) => v == null || v.isEmpty ? 'Source is required' : null,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Title (Optional)',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: urlController,
+                  decoration: const InputDecoration(
+                    labelText: 'URL (Optional)',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                final source = sourceController.text;
+                final title = titleController.text.isEmpty ? source : titleController.text;
+                final url = urlController.text.isEmpty ? null : urlController.text;
+
+                Navigator.pop(context);
+                await provider.addCustomTask(date, source, title, url);
+              }
+            },
+            child: const Text('ADD'),
+          ),
+        ],
       ),
     );
   }

@@ -13,6 +13,7 @@ class CommonWebViewScreen extends StatefulWidget {
   final String title;
   final DashboardTask? task;
   final QuizDetail? quiz;
+  final ArticleDetail? article;
 
   const CommonWebViewScreen({
     super.key,
@@ -20,6 +21,7 @@ class CommonWebViewScreen extends StatefulWidget {
     required this.title,
     this.task,
     this.quiz,
+    this.article,
   });
 
   @override
@@ -106,16 +108,39 @@ class _CommonWebViewScreenState extends State<CommonWebViewScreen> {
     }
   }
 
+  ArticleDetail? _findLatestArticle(DashboardProvider provider, String date, ArticleDetail originalArticle) {
+    if (provider.data == null) return null;
+    try {
+      final task = provider.data!.allTasks.firstWhere((t) => t.date == date);
+      return task.articles.firstWhere((a) => a.url == originalArticle.url);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _markAsDone(BuildContext context, DashboardProvider provider) async {
-    if (widget.task != null && widget.quiz != null) {
-      await provider.markQuizAsCompleted(widget.task!, widget.quiz!);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Quiz marked as completed'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+    if (widget.task != null) {
+      final messenger = ScaffoldMessenger.of(context);
+      if (widget.quiz != null) {
+        await provider.markQuizAsCompleted(widget.task!, widget.quiz!);
+        if (mounted) {
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Quiz marked as completed'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else if (widget.article != null) {
+        await provider.markArticleAsCompleted(widget.task!, widget.article!);
+        if (mounted) {
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Article marked as completed'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       }
     }
   }
@@ -161,11 +186,17 @@ class _CommonWebViewScreenState extends State<CommonWebViewScreen> {
           ],
         ),
         actions: [
-          if (widget.quiz != null && widget.task != null)
+          if ((widget.quiz != null || (widget.article != null && widget.article!.isCustom)) && widget.task != null)
             Consumer<DashboardProvider>(
               builder: (context, provider, _) {
-                final currentQuiz = _findLatestQuiz(provider, widget.task!.date, widget.quiz!);
-                final isDone = currentQuiz?.isCompleted ?? widget.quiz!.isCompleted;
+                bool isDone = false;
+                if (widget.quiz != null) {
+                  final currentQuiz = _findLatestQuiz(provider, widget.task!.date, widget.quiz!);
+                  isDone = currentQuiz?.isCompleted ?? widget.quiz!.isCompleted;
+                } else if (widget.article != null) {
+                  final currentArticle = _findLatestArticle(provider, widget.task!.date, widget.article!);
+                  isDone = currentArticle?.isCompleted ?? widget.article!.isCompleted;
+                }
 
                 if (isDone) {
                   return const Padding(
