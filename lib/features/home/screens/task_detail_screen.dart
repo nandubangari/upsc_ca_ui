@@ -67,13 +67,14 @@ class TaskDetailScreen extends StatelessWidget {
                 final isTablet = constraints.maxWidth >= 600;
                 final isLandscape = constraints.maxWidth > constraints.maxHeight && !isTablet;
 
-                if (isTablet) {
-                  return _buildTabletLayout(context, sortedQuizzes, sortedArticles, currentTask);
-                } else if (isLandscape) {
-                  return _buildLandscapeLayout(context, sortedQuizzes, sortedArticles, currentTask);
-                } else {
-                  return _buildPortraitLayout(context, sortedQuizzes, sortedArticles, currentTask);
-                }
+                return CustomScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  slivers: isTablet
+                      ? _buildTabletSlivers(context, sortedQuizzes, sortedArticles, currentTask)
+                      : isLandscape
+                          ? _buildLandscapeSlivers(context, sortedQuizzes, sortedArticles, currentTask)
+                          : _buildPortraitSlivers(context, sortedQuizzes, sortedArticles, currentTask),
+                );
               },
             ),
           ),
@@ -91,57 +92,117 @@ class TaskDetailScreen extends StatelessWidget {
     }
   }
 
-  Widget _buildPortraitLayout(BuildContext context, List<QuizModel> quizzes, List<ArticleModel> articles, DashboardTask currentTask) {
+  List<Widget> _buildPortraitSlivers(BuildContext context, List<QuizModel> quizzes, List<ArticleModel> articles, DashboardTask currentTask) {
     final groupedArticles = _groupArticlesBySource(articles);
     
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SectionHeader(title: 'ARTICLES'),
-          ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles, currentTask)),
-          const SizedBox(height: 32),
-          const SectionHeader(title: 'QUIZZES'),
-          ...quizzes.map((q) => QuizCard(quiz: q, task: currentTask)),
-          const SizedBox(height: 40),
-        ],
+    return [
+      const SliverPadding(
+        padding: EdgeInsets.fromLTRB(20, 10, 20, 0),
+        sliver: SliverToBoxAdapter(child: SectionHeader(title: 'ARTICLES')),
       ),
-    );
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              final entry = groupedArticles.entries.elementAt(index);
+              return _buildSourceGroup(context, entry.key, entry.value, articles, currentTask);
+            },
+            childCount: groupedArticles.length,
+          ),
+        ),
+      ),
+      const SliverPadding(
+        padding: EdgeInsets.fromLTRB(20, 32, 20, 0),
+        sliver: SliverToBoxAdapter(child: SectionHeader(title: 'QUIZZES')),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, index) => QuizCard(quiz: quizzes[index], task: currentTask),
+            childCount: quizzes.length,
+          ),
+        ),
+      ),
+      const SliverToBoxAdapter(child: SizedBox(height: 40)),
+    ];
   }
 
-  Widget _buildLandscapeLayout(BuildContext context, List<QuizModel> quizzes, List<ArticleModel> articles, DashboardTask currentTask) {
+  List<Widget> _buildLandscapeSlivers(BuildContext context, List<QuizModel> quizzes, List<ArticleModel> articles, DashboardTask currentTask) {
     final groupedArticles = _groupArticlesBySource(articles);
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 10, 10, 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SectionHeader(title: 'ARTICLES'),
-                ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles, currentTask)),
-              ],
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 40),
+        sliver: SliverToBoxAdapter(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionHeader(title: 'ARTICLES'),
+                    ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles, currentTask)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionHeader(title: 'QUIZZES'),
+                    ...quizzes.map((q) => QuizCard(quiz: q, task: currentTask)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _buildTabletSlivers(BuildContext context, List<QuizModel> quizzes, List<ArticleModel> articles, DashboardTask currentTask) {
+    final groupedArticles = _groupArticlesBySource(articles);
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        sliver: SliverToBoxAdapter(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SectionHeader(title: 'ARTICLES'),
+                        ...groupedArticles.entries.map((entry) => _buildSourceGroup(context, entry.key, entry.value, articles, currentTask)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SectionHeader(title: 'QUIZZES'),
+                        ...quizzes.map((q) => QuizCard(quiz: q, task: currentTask)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(10, 10, 20, 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SectionHeader(title: 'QUIZZES'),
-                ...quizzes.map((q) => QuizCard(quiz: q, task: currentTask)),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
+      ),
+    ];
   }
 
   Map<String, List<ArticleModel>> _groupArticlesBySource(List<ArticleModel> articles) {
@@ -174,16 +235,6 @@ class TaskDetailScreen extends StatelessWidget {
       ],
     );
   }
-
-  Widget _buildTabletLayout(BuildContext context, List<QuizModel> quizzes, List<ArticleModel> articles, DashboardTask currentTask) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1000),
-        child: _buildLandscapeLayout(context, quizzes, articles, currentTask),
-      ),
-    );
-  }
-
 
   void _showAddTaskDialog(BuildContext context, DashboardProvider provider, String date) {
     final sourceController = TextEditingController();

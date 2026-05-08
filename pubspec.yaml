@@ -47,6 +47,7 @@ dependencies:
   shared_preferences: ^2.5.2
   intl: ^0.20.2
   flutter_widget_from_html_core: ^0.17.2
+  cached_network_image: ^3.4.1
 
 dev_dependencies:
   flutter_test:

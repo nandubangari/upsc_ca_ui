@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:upsc_ca_ui/data/services/dashboard_service.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_data.dart';
@@ -90,15 +91,50 @@ class SyncedDashboardService implements DashboardService {
 
     await Future.wait(fetchFutures);
 
-    // 3. Merge synced data into taskMap
+    // 3. Move merging and categorization to background isolate
+    final syncData = {
+      'baseData': baseData.toJson(),
+      'profile': profile?.toJson(),
+      'allSyncedArticles': allSyncedArticles.map((k, v) => MapEntry(k, v.map((i) => i.toJson()).toList())),
+      'allSyncedQuizzes': allSyncedQuizzes.map((k, v) => MapEntry(k, v.map((i) => i.toJson()).toList())),
+    };
+
+    try {
+      final resultJson = await compute(_mergeAndCategorizeInBackground, syncData);
+      return DashboardData.fromJson(resultJson);
+    } catch (e) {
+      AppLogger.e("[SyncedDashboardService] Background merge failed", e);
+      // Fallback to minimal processing if background fails (though compute is usually reliable)
+      return baseData;
+    }
+  }
+
+  static Map<String, dynamic> _mergeAndCategorizeInBackground(Map<String, dynamic> data) {
+    final baseData = DashboardData.fromJson(data['baseData']);
+    final profile = data['profile'] != null ? ProfileData.fromJson(data['profile']) : null;
+    
+    final Map<String, List<ArticleModel>> allSyncedArticles = (data['allSyncedArticles'] as Map).map(
+      (k, v) => MapEntry(k as String, (v as List).map((i) => ArticleModel.fromJson(i)).toList())
+    );
+    final Map<String, List<QuizModel>> allSyncedQuizzes = (data['allSyncedQuizzes'] as Map).map(
+      (k, v) => MapEntry(k as String, (v as List).map((i) => QuizModel.fromJson(i)).toList())
+    );
+
+    final startDate = profile?.startDate ?? DateTime(2000);
+    final normalizedStartDate = DateTime(startDate.year, startDate.month, startDate.day);
+    final startDateIso = normalizedStartDate.toIso8601String().split('T')[0];
+
+    // Merge logic (copied from original and adapted)
     final Map<String, DashboardTask> taskMap = {};
     for (var t in baseData.allTasks) {
-      final iso = DateFormatter.toIso(DateFormatter.parseAny(t.date));
+      final iso = _toIsoDate(t.date);
       taskMap[iso] = t;
     }
 
-    // Merge Articles with Deduplication
+    // Merge Articles
     allSyncedArticles.forEach((isoDate, items) {
+      if (isoDate.compareTo(startDateIso) < 0) return;
+
       final Map<String, ArticleModel> uniqueIncoming = {};
       for (var item in items) {
         uniqueIncoming[item.url ?? ''] = item;
@@ -113,7 +149,6 @@ class SyncedDashboardService implements DashboardService {
           final url = incoming.url ?? '';
           if (merged.containsKey(url)) {
             final existing = merged[url]!;
-            // Merge logic: prefer newer info or completion status
             merged[url] = existing.copyWith(
               title: incoming.title.length > existing.title.length ? incoming.title : existing.title,
               subtitle: (existing.subtitle == null || existing.subtitle!.isEmpty) ? incoming.subtitle : existing.subtitle,
@@ -128,7 +163,7 @@ class SyncedDashboardService implements DashboardService {
         taskMap[isoDate] = existingTask.copyWith(articles: merged.values.toList());
       } else {
         taskMap[isoDate] = DashboardTask(
-          date: DateFormatter.isoToAppDate(isoDate),
+          date: _isoToAppDate(isoDate),
           articlesDone: 0, totalArticles: incomingArticles.length,
           quizzesDone: 0, totalQuizzes: 0,
           articles: incomingArticles,
@@ -136,8 +171,10 @@ class SyncedDashboardService implements DashboardService {
       }
     });
 
-    // Merge Quizzes with Deduplication
+    // Merge Quizzes
     allSyncedQuizzes.forEach((isoDate, quizzes) {
+      if (isoDate.compareTo(startDateIso) < 0) return;
+
       if (taskMap.containsKey(isoDate)) {
         final existingTask = taskMap[isoDate]!;
         final Map<String, QuizModel> merged = { for (var q in existingTask.quizzes) q.title: q };
@@ -155,7 +192,7 @@ class SyncedDashboardService implements DashboardService {
         taskMap[isoDate] = existingTask.copyWith(quizzes: merged.values.toList());
       } else {
         taskMap[isoDate] = DashboardTask(
-          date: DateFormatter.isoToAppDate(isoDate),
+          date: _isoToAppDate(isoDate),
           articlesDone: 0, totalArticles: 0,
           quizzesDone: 0, totalQuizzes: quizzes.length,
           quizzes: quizzes, articles: [],
@@ -163,7 +200,7 @@ class SyncedDashboardService implements DashboardService {
       }
     });
 
-    // 4. Recalculate Counts and generate Revisions
+    // Recalculate counts
     taskMap.forEach((iso, task) {
       taskMap[iso] = task.copyWith(
         totalArticles: task.articles.length,
@@ -173,7 +210,7 @@ class SyncedDashboardService implements DashboardService {
       );
     });
 
-    // Generate Spaced Repetitions (Future Revisions)
+    // Spaced Repetition Logic (Revisions)
     if (profile != null && profile.repetitionDays.isNotEmpty) {
       final List<DashboardTask> completedHistory = taskMap.values.where((t) => t.isFullyCompleted).toList();
       for (var task in completedHistory) {
@@ -185,7 +222,7 @@ class SyncedDashboardService implements DashboardService {
           DateTime scheduled = lastDone.add(Duration(days: interval));
           scheduled = _adjustToAvailableDay(scheduled, profile.availableDays);
           
-          final iso = DateFormatter.toIso(scheduled);
+          final iso = scheduled.toIso8601String().split('T')[0];
           final now = DateTime.now();
           final today = DateTime(now.year, now.month, now.day);
           if (scheduled.isBefore(today)) continue;
@@ -205,7 +242,7 @@ class SyncedDashboardService implements DashboardService {
             );
           } else {
             taskMap[iso] = DashboardTask(
-              date: DateFormatter.isoToAppDate(iso),
+              date: _isoToAppDate(iso),
               articlesDone: 0, totalArticles: task.articles.length,
               quizzesDone: 0, totalQuizzes: task.quizzes.length,
               type: TaskType.revision,
@@ -218,7 +255,7 @@ class SyncedDashboardService implements DashboardService {
       }
     }
 
-    // 5. Final Categorization using unified logic
+    // Categorization
     int daysLeft = 0;
     if (profile?.examDate != null) {
       final now = DateTime.now();
@@ -227,10 +264,40 @@ class SyncedDashboardService implements DashboardService {
       if (daysLeft < 0) daysLeft = 0;
     }
 
-    return TaskCategorizer.categorize(allTasks: taskMap.values.toList(), daysLeft: daysLeft);
+    final categorized = TaskCategorizer.categorize(allTasks: taskMap.values.toList(), daysLeft: daysLeft);
+    return categorized.toJson();
   }
 
-  DateTime? _getLatestCompletionDate(DashboardTask task) {
+  static String _toIsoDate(String dateStr) {
+    try {
+      return DateTime.parse(dateStr).toIso8601String().split('T')[0];
+    } catch (_) {
+      try {
+        final parts = dateStr.split(' ');
+        if (parts.length == 3) {
+          final day = parts[0].padLeft(2, '0');
+          final monthStr = parts[1].toUpperCase();
+          final year = parts[2];
+          final months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+          final monthIdx = months.indexOf(monthStr) + 1;
+          if (monthIdx > 0) return '$year-${monthIdx.toString().padLeft(2, '0')}-$day';
+        }
+      } catch (_) {}
+      return "0000-00-00";
+    }
+  }
+
+  static String _isoToAppDate(String iso) {
+    try {
+      final dt = DateTime.parse(iso);
+      final months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+      return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  static DateTime? _getLatestCompletionDate(DashboardTask task) {
     DateTime? latest;
     for (var a in task.articles) {
       if (a.completedAt != null) {
@@ -247,7 +314,7 @@ class SyncedDashboardService implements DashboardService {
     return latest;
   }
 
-  DateTime _adjustToAvailableDay(DateTime scheduled, List<int> availableDays) {
+  static DateTime _adjustToAvailableDay(DateTime scheduled, List<int> availableDays) {
     if (availableDays.isEmpty) return scheduled;
     DateTime adjusted = DateTime(scheduled.year, scheduled.month, scheduled.day);
     for (int i = 0; i < 7; i++) {

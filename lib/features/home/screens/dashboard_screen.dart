@@ -112,12 +112,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final isWide = constraints.maxWidth >= 700;
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 1000),
-                          child: isWide ? _buildWideLayout(context, data) : _buildNarrowLayout(context, data),
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1000),
+                        child: CustomScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          slivers: isWide 
+                              ? _buildWideSlivers(context, data, provider) 
+                              : _buildNarrowSlivers(context, data, provider),
                         ),
                       ),
                     );
@@ -291,94 +293,188 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Widget _buildNarrowLayout(BuildContext context, DashboardData data) {
-    final nextUnread = context.select((DashboardProvider p) => p.nextUnreadTaskAndArticle);
+  List<Widget> _buildNarrowSlivers(BuildContext context, DashboardData data, DashboardProvider provider) {
+    final nextUnread = provider.nextUnreadTaskAndArticle;
+    final visibleCompleted = provider.visibleCompletedTasks;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (nextUnread != null) ...[
-          _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
-          const SizedBox(height: 24),
-        ],
-        if (data.inProgressTasks.isNotEmpty) ...[
-          const SectionHeader(title: 'In Progress', isLarge: true),
-          ...data.inProgressTasks.map((t) => TaskCard(task: t)),
-          const SizedBox(height: 24),
-        ],
-        if (data.todayTasks.isNotEmpty) ...[
-          const SectionHeader(title: 'Today\'s Tasks', isLarge: true),
-          ...data.todayTasks.map((t) => TaskCard(task: t)),
-          const SizedBox(height: 24),
-        ],
-        if (data.notStartedTasks.isNotEmpty) ...[
-          const SectionHeader(title: 'Not Started', isLarge: true),
-          ...data.notStartedTasks.map((t) => TaskCard(task: t)),
-          const SizedBox(height: 24),
-        ],
-        if (data.completedTasks.isNotEmpty) ...[
-          const SectionHeader(title: 'Completed History', isLarge: true),
-          ...data.completedTasks.map((t) => TaskCard(task: t)),
-        ],
-        const SizedBox(height: 40),
-      ],
-    );
-  }
-
-  Widget _buildWideLayout(BuildContext context, DashboardData data) {
-    final nextUnread = context.select((DashboardProvider p) => p.nextUnreadTaskAndArticle);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (nextUnread != null) ...[
-          _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
-          const SizedBox(height: 32),
-        ],
-        if (data.inProgressTasks.isNotEmpty) ...[
-          const SectionHeader(title: 'In Progress', isLarge: true),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 10,
-              mainAxisExtent: 80,
-            ),
+    return [
+      if (nextUnread != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          sliver: SliverToBoxAdapter(
+            child: _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
+          ),
+        ),
+      
+      if (data.inProgressTasks.isNotEmpty) ...[
+        const SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'In Progress', isLarge: true)),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          sliver: SliverList.builder(
             itemCount: data.inProgressTasks.length,
             itemBuilder: (context, index) => TaskCard(task: data.inProgressTasks[index]),
           ),
-          const SizedBox(height: 32),
-        ],
-        if (data.todayTasks.isNotEmpty) ...[
-          const SectionHeader(title: 'Today\'s Tasks', isLarge: true),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 16)),
+      ],
+
+      if (data.todayTasks.isNotEmpty) ...[
+        const SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Today\'s Tasks', isLarge: true)),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          sliver: SliverList.builder(
+            itemCount: data.todayTasks.length,
+            itemBuilder: (context, index) => TaskCard(task: data.todayTasks[index]),
+          ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 16)),
+      ],
+
+      if (data.notStartedTasks.isNotEmpty) ...[
+        const SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Not Started', isLarge: true)),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          sliver: SliverList.builder(
+            itemCount: data.notStartedTasks.length,
+            itemBuilder: (context, index) => TaskCard(task: data.notStartedTasks[index]),
+          ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 16)),
+      ],
+
+      if (data.completedTasks.isNotEmpty) ...[
+        const SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Completed History', isLarge: true)),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          sliver: SliverList.builder(
+            itemCount: visibleCompleted.length,
+            itemBuilder: (context, index) => TaskCard(task: visibleCompleted[index]),
+          ),
+        ),
+        if (provider.hasMoreCompletedTasks)
+          SliverToBoxAdapter(
+            child: Center(
+              child: TextButton(
+                onPressed: provider.loadMoreCompletedTasks,
+                child: const Text('SHOW MORE'),
+              ),
+            ),
+          ),
+      ],
+      const SliverToBoxAdapter(child: SizedBox(height: 40)),
+    ];
+  }
+
+  List<Widget> _buildWideSlivers(BuildContext context, DashboardData data, DashboardProvider provider) {
+    final nextUnread = provider.nextUnreadTaskAndArticle;
+    final visibleCompleted = provider.visibleCompletedTasks;
+
+    return [
+      if (nextUnread != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          sliver: SliverToBoxAdapter(
+            child: _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
+          ),
+        ),
+
+      if (data.inProgressTasks.isNotEmpty) ...[
+        const SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'In Progress', isLarge: true)),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          sliver: SliverGrid(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
               crossAxisSpacing: 12,
               mainAxisSpacing: 10,
               mainAxisExtent: 80,
             ),
-            itemCount: data.todayTasks.length,
-            itemBuilder: (context, index) => TaskCard(task: data.todayTasks[index]),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => TaskCard(task: data.inProgressTasks[index]),
+              childCount: data.inProgressTasks.length,
+            ),
           ),
-          const SizedBox(height: 32),
-        ],
-        if (data.notStartedTasks.isNotEmpty) ...[
-          const SectionHeader(title: 'Not Started', isLarge: true),
-          ...data.notStartedTasks.map((t) => TaskCard(task: t)),
-          const SizedBox(height: 32),
-        ],
-        if (data.completedTasks.isNotEmpty) ...[
-          const SectionHeader(title: 'Completed History', isLarge: true),
-          ...data.completedTasks.map((t) => TaskCard(task: t)),
-        ],
-        const SizedBox(height: 40),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 20)),
       ],
-    );
+
+      if (data.todayTasks.isNotEmpty) ...[
+        const SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Today\'s Tasks', isLarge: true)),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 10,
+              mainAxisExtent: 80,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => TaskCard(task: data.todayTasks[index]),
+              childCount: data.todayTasks.length,
+            ),
+          ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 20)),
+      ],
+
+      if (data.notStartedTasks.isNotEmpty) ...[
+        const SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Not Started', isLarge: true)),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          sliver: SliverList.builder(
+            itemCount: data.notStartedTasks.length,
+            itemBuilder: (context, index) => TaskCard(task: data.notStartedTasks[index]),
+          ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 20)),
+      ],
+
+      if (data.completedTasks.isNotEmpty) ...[
+        const SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Completed History', isLarge: true)),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          sliver: SliverList.builder(
+            itemCount: visibleCompleted.length,
+            itemBuilder: (context, index) => TaskCard(task: visibleCompleted[index]),
+          ),
+        ),
+        if (provider.hasMoreCompletedTasks)
+          SliverToBoxAdapter(
+            child: Center(
+              child: TextButton(
+                onPressed: provider.loadMoreCompletedTasks,
+                child: const Text('SHOW MORE'),
+              ),
+            ),
+          ),
+      ],
+      const SliverToBoxAdapter(child: SizedBox(height: 40)),
+    ];
   }
 
   Widget _buildContinueReadingButton(BuildContext context, DashboardTask task, ArticleModel article) {

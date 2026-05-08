@@ -20,6 +20,10 @@ class DashboardProvider with ChangeNotifier {
   String? _syncStatus;
   bool _needsVajiramLogin = false;
   
+  // Pagination for completed tasks
+  int _completedTasksPageSize = 10;
+  int _completedTasksCurrentCount = 10;
+  
   final DashboardRepository _repository = DashboardRepository();
 
   DashboardData? get data => _data;
@@ -28,6 +32,23 @@ class DashboardProvider with ChangeNotifier {
   String? get error => _error;
   String? get syncStatus => _syncStatus;
   bool get needsVajiramLogin => _needsVajiramLogin;
+
+  List<DashboardTask> get visibleCompletedTasks {
+    if (_data == null) return [];
+    return _data!.completedTasks.take(_completedTasksCurrentCount).toList();
+  }
+
+  bool get hasMoreCompletedTasks {
+    if (_data == null) return false;
+    return _data!.completedTasks.length > _completedTasksCurrentCount;
+  }
+
+  void loadMoreCompletedTasks() {
+    if (hasMoreCompletedTasks) {
+      _completedTasksCurrentCount += _completedTasksPageSize;
+      notifyListeners();
+    }
+  }
 
   Map<String, dynamic>? get nextUnreadTaskAndArticle {
     if (_data == null) return null;

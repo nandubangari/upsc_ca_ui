@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
 import 'package:upsc_ca_ui/shared/models/article_model.dart';
 import 'package:upsc_ca_ui/shared/models/article_content.dart';
@@ -421,11 +422,17 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
             padding: const EdgeInsets.only(bottom: 24),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: Image.network(
-                article.imageUrl!,
+              child: CachedNetworkImage(
+                imageUrl: article.imageUrl!,
                 width: double.infinity,
                 fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                memCacheWidth: isTablet ? 1200 : 800,
+                placeholder: (context, url) => Container(
+                  height: 200,
+                  color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                  child: const Center(child: CircularProgressIndicator(strokeWidth: 1)),
+                ),
+                errorWidget: (context, url, error) => const SizedBox.shrink(),
               ),
             ),
           ),
@@ -727,18 +734,27 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
             child: (imageData.width != null && imageData.height != null)
                 ? AspectRatio(
                     aspectRatio: imageData.width! / imageData.height!,
-                    child: Image.network(
-                      imageData.url,
+                    child: CachedNetworkImage(
+                      imageUrl: imageData.url,
                       width: double.infinity,
                       fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                      memCacheWidth: isTablet ? 1200 : 800,
+                      placeholder: (context, url) => Container(
+                        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                      ),
+                      errorWidget: (context, url, error) => const SizedBox.shrink(),
                     ),
                   )
-                : Image.network(
-                    imageData.url,
+                : CachedNetworkImage(
+                    imageUrl: imageData.url,
                     width: double.infinity,
                     fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                    memCacheWidth: isTablet ? 1200 : 800,
+                    placeholder: (context, url) => Container(
+                      height: 100,
+                      color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                    ),
+                    errorWidget: (context, url, error) => const SizedBox.shrink(),
                   ),
           ),
         );
