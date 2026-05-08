@@ -1,5 +1,5 @@
+import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/foundation.dart';
 
 class DateFormatter {
   static String isoToAppDate(String isoDate) {
@@ -11,22 +11,19 @@ class DateFormatter {
     }
   }
 
-  static String formatForVajiram(DateTime date) {
-    return DateFormat('yyyy/MM').format(date);
-  }
 
   static String toIso(DateTime date) {
     return DateFormat('yyyy-MM-dd').format(date);
   }
 
   static DateTime parseAny(String dateStr) {
-    print('DEBUG: [DateFormatter] Attempting to parse: "$dateStr"');
+    AppLogger.d("[DateFormatter] Attempting to parse: $dateStr");
     if (dateStr.isEmpty) return DateTime(2000);
 
     try {
       // 1. Try standard ISO
       final dt = DateTime.parse(dateStr);
-      print('DEBUG: [DateFormatter] Successfully parsed as ISO: $dt');
+      AppLogger.d("[DateFormatter] Successfully parsed as ISO: $dt");
       return dt;
     } catch (_) {}
 
@@ -44,22 +41,24 @@ class DateFormatter {
         
         if (day != null && year != null && month > 0) {
           final dt = DateTime(year, month, day);
-          print('DEBUG: [DateFormatter] Successfully parsed manually: $dt');
+          AppLogger.d("[DateFormatter] Successfully parsed manually: $dt");
           return dt;
         }
       }
     } catch (e) {
-      print('DEBUG: [DateFormatter] Manual parse failed: $e');
+      AppLogger.d("[DateFormatter] Manual parse failed: $e");
     }
     
     try {
       // 3. Fallback to DateFormat
       final dt = DateFormat('dd MMM yyyy', 'en_US').parse(dateStr.toUpperCase());
-      print('DEBUG: [DateFormatter] Successfully parsed with DateFormat: $dt');
+      AppLogger.d("[DateFormatter] Successfully parsed with DateFormat: $dt");
       return dt;
     } catch (e) {
-      print('ERROR: [DateFormatter] All parsing attempts failed for: "$dateStr". Last error: $e');
+      AppLogger.e("[DateFormatter] All parsing attempts failed for: $dateStr. Last error: $e");
       return DateTime(2000);
     }
   }
 }
+
+

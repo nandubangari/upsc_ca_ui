@@ -1,16 +1,18 @@
+import 'dart:async';
+import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
-import 'theme/app_theme.dart';
-import 'screens/login_screen.dart';
-import 'screens/dashboard_screen.dart';
-import 'providers/dashboard_provider.dart';
-import 'providers/theme_provider.dart';
-import 'services/auth_service.dart';
-import 'firebase_options.dart';
+import 'package:upsc_ca_ui/core/theme/app_theme.dart';
+import 'package:upsc_ca_ui/features/auth/screens/login_screen.dart';
+import 'package:upsc_ca_ui/features/home/screens/dashboard_screen.dart';
+import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
+import 'package:upsc_ca_ui/providers/theme_provider.dart';
+import 'package:upsc_ca_ui/data/repositories/auth_repository.dart';
+import 'package:upsc_ca_ui/firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,13 +25,13 @@ void main() async {
       );
     }
   } catch (e) {
-    debugPrint('Firebase initialization failed: $e');
+    AppLogger.d('Firebase initialization failed: $e');
   }
   
   // Set the platform-specific implementation
   final platform = WebViewPlatform.instance;
   if (platform is AndroidWebViewPlatform) {
-    AndroidWebViewController.enableDebugging(true);
+    unawaited(AndroidWebViewController.enableDebugging(true));
   }
 
   runApp(
@@ -66,10 +68,10 @@ class AuthWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final authService = AuthService();
+    final authRepository = AuthRepository();
     
     return StreamBuilder<User?>(
-      stream: authService.user,
+      stream: authRepository.user,
       builder: (context, snapshot) {
         // If the snapshot has user data, the user is logged in
         if (snapshot.connectionState == ConnectionState.active) {
@@ -117,7 +119,7 @@ class _LoginEntryWrapperState extends State<LoginEntryWrapper> with SingleTicker
     _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
     );
-    _controller.forward();
+    unawaited(_controller.forward());
   }
 
   @override
@@ -137,3 +139,5 @@ class _LoginEntryWrapperState extends State<LoginEntryWrapper> with SingleTicker
     );
   }
 }
+
+
