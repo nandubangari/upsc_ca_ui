@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +19,9 @@ import 'package:upsc_ca_ui/firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  // Set immersive fullscreen mode (hides status bar and navigation bar)
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  
   // Initialize Firebase with options
   try {
     if (Firebase.apps.isEmpty) {
@@ -31,7 +36,9 @@ void main() async {
   // Set the platform-specific implementation
   final platform = WebViewPlatform.instance;
   if (platform is AndroidWebViewPlatform) {
-    unawaited(AndroidWebViewController.enableDebugging(true));
+    if (kDebugMode) {
+      unawaited(AndroidWebViewController.enableDebugging(true));
+    }
   }
 
   runApp(

@@ -88,7 +88,12 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
       backgroundColor: backgroundColor,
       body: Consumer<DashboardProvider>(
         builder: (context, provider, child) {
-          final flattened = provider.allArticlesFlattened;
+          // 🟢 FIX: If we have an initialUrl, we might be trying to open a COMPLETED article.
+          // In that case, use the list that includes completed items.
+          // Otherwise, use the unread-only list for the "Continue Reading" flow.
+          final flattened = widget.initialUrl != null 
+              ? provider.allArticlesFlattenedWithCompleted 
+              : provider.allArticlesFlattened;
           
           if (flattened.isEmpty) {
             return const Center(child: Text('No articles available'));
@@ -97,28 +102,47 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
           // 🟢 CRITICAL: Find the correct starting index based on URL, not a passed-in stale index
           if (!_isInitialized) {
             int startIndex = 0;
-            if (widget.initialUrl != null) {
+            String? targetUrl = widget.initialUrl;
+            
+            // If no explicit URL was passed, try to resume from the last viewed one
+            if (targetUrl == null && provider.lastViewedUrl != null) {
+              targetUrl = provider.lastViewedUrl;
+            }
+
+            if (targetUrl != null) {
               startIndex = flattened.indexWhere((item) {
                 final art = item['article'] as ArticleModel;
-                return art.url == widget.initialUrl;
+                return art.url == targetUrl;
               });
               if (startIndex == -1) {
-                AppLogger.d('DEBUG: [ArticleReader] URL not found in flattened list: ${widget.initialUrl}');
+                AppLogger.d('DEBUG: [ArticleReader] Target URL not found in flattened list: $targetUrl');
                 startIndex = 0;
               } else {
-                AppLogger.d('DEBUG: [ArticleReader] Found URL at index $startIndex: ${widget.initialUrl}');
+                AppLogger.d('DEBUG: [ArticleReader] Found Target URL at index $startIndex: $targetUrl');
               }
             }
             
             // Re-initialize controller with correct start page
             _pageController = PageController(initialPage: startIndex);
             _isInitialized = true;
+
+            // Also record this as the current last viewed if we just started
+            final article = flattened[startIndex]['article'] as ArticleModel;
+            if (article.url != null) {
+              unawaited(provider.setLastViewedUrl(article.url!));
+            }
           }
 
           return PageView.builder(
             controller: _pageController,
             scrollDirection: Axis.vertical,
             itemCount: flattened.length,
+            onPageChanged: (index) {
+              final article = flattened[index]['article'] as ArticleModel;
+              if (article.url != null) {
+                unawaited(provider.setLastViewedUrl(article.url!));
+              }
+            },
             itemBuilder: (context, index) {
               final item = flattened[index];
               final task = item['task'] as DashboardTask;
@@ -637,11 +661,7 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
                 ),
               ),
               Expanded(
-                child: WebViewWidget(
-                  controller: WebViewController()
-                    ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                    ..loadRequest(Uri.parse(url)),
-                ),
+                child: SelectionWebView(url: url),
               ),
             ],
           ),
@@ -855,6 +875,76 @@ class _StickyTitleDelegate extends SliverPersistentHeaderDelegate {
   @override
   bool shouldRebuild(covariant _StickyTitleDelegate oldDelegate) {
     return oldDelegate.title != title || oldDelegate.isDark != isDark;
+  }
+}
+
+class SelectionWebView extends StatefulWidget {
+  final String url;
+  const SelectionWebView({super.key, required this.url});
+
+  @override
+  State<SelectionWebView> createState() => _SelectionWebViewState();
+}
+
+class _SelectionWebViewState extends State<SelectionWebView> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent(
+          "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (_) {
+            if (mounted) setState(() => _isLoading = true);
+          },
+          onPageFinished: (_) {
+            if (mounted) setState(() => _isLoading = false);
+          },
+          onNavigationRequest: (request) {
+            final url = request.url;
+            if (url.startsWith('intent://') ||
+                url.startsWith('geo:') ||
+                url.startsWith('maps:') ||
+                url.contains('market://') ||
+                url.startsWith('tel:') ||
+                url.startsWith('mailto:')) {
+              AppLogger.d('DEBUG: [SelectionWebView] Blocking external redirect: $url');
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.url));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    _controller.setBackgroundColor(isDark ? AppTheme.backgroundDeep : Colors.white);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        WebViewWidget(controller: _controller),
+        if (_isLoading)
+          const Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+      ],
+    );
   }
 }
 

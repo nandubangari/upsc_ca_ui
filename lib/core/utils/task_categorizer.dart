@@ -38,11 +38,12 @@ class TaskCategorizer {
       final bool isStarted = (task.articlesDone + task.quizzesDone) > 0;
       final bool isActuallyToday = task.isoDate.isAtSameMomentAs(today);
       
-      if (assignedToToday < quota || isActuallyToday) {
+      if (isStarted) {
+        // Any task with progress moves to In Progress (unless it was fully completed)
+        inProgressTasks.add(task);
+      } else if (assignedToToday < quota || isActuallyToday) {
         todayTasks.add(task);
         assignedToToday++;
-      } else if (isStarted) {
-        inProgressTasks.add(task);
       } else {
         notStartedTasks.add(task);
       }

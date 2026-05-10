@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -19,6 +20,8 @@ class DashboardProvider with ChangeNotifier {
   String? _error;
   String? _syncStatus;
   bool _needsVajiramLogin = false;
+  String? _lastViewedUrl;
+  SharedPreferences? _prefs;
   
   // Pagination for completed tasks
   int _completedTasksPageSize = 10;
@@ -32,6 +35,7 @@ class DashboardProvider with ChangeNotifier {
   String? get error => _error;
   String? get syncStatus => _syncStatus;
   bool get needsVajiramLogin => _needsVajiramLogin;
+  String? get lastViewedUrl => _lastViewedUrl;
 
   List<DashboardTask> get visibleCompletedTasks {
     if (_data == null) return [];
@@ -51,38 +55,109 @@ class DashboardProvider with ChangeNotifier {
   }
 
   Map<String, dynamic>? get nextUnreadTaskAndArticle {
-    if (_data == null) return null;
+    final flattened = allArticlesFlattened;
+    if (flattened.isEmpty) return null;
 
-    for (var task in _data!.allTasks) {
-      if (task.articles.isEmpty) continue;
-      for (var article in task.articles) {
-        if (!article.isCompleted) {
-          return {
-            'task': task,
-            'article': article,
-          };
-        }
+    // 1. Try to find the last viewed article if it's still uncompleted
+    if (_lastViewedUrl != null) {
+      try {
+        return flattened.firstWhere((item) => (item['article'] as ArticleModel).url == _lastViewedUrl);
+      } catch (_) {
+        // Not found or already completed, fall through
       }
     }
-    return null;
+
+    // 2. Otherwise, return the very first one in the sorted list (Latest unread)
+    return flattened.first;
   }
 
   List<Map<String, dynamic>> get allArticlesFlattened {
     if (_data == null) return [];
 
-    final flattened = <Map<String, dynamic>>[];
-    for (var task in _data!.allTasks) {
-      final sortedArticles = List<ArticleModel>.from(task.articles)
-        ..sort((a, b) => a.isCompleted == b.isCompleted ? 0 : (a.isCompleted ? 1 : -1));
+    final result = <Map<String, dynamic>>[];
+    
+    // 1. Collect ALL uncompleted tasks across ALL categories
+    final allUncompleted = _data!.allTasks.where((t) => !t.isFullyCompleted).toList();
+    
+    // 2. Sort tasks strictly by Date DESC (Latest First)
+    allUncompleted.sort((a, b) => b.isoDate.compareTo(a.isoDate));
+    
+    for (var task in allUncompleted) {
+      // 3. Filter only uncompleted articles
+      final uncompletedArticles = task.articles.where((a) => !a.isCompleted).toList();
+      if (uncompletedArticles.isEmpty) continue;
 
-      for (var article in sortedArticles) {
-        flattened.add({
+      // 4. Sort articles within the same task by source priority
+      uncompletedArticles.sort((a, b) => _compareSources(a.source, b.source));
+
+      for (var article in uncompletedArticles) {
+        result.add({
           'task': task,
           'article': article,
         });
       }
     }
-    return flattened;
+    return result;
+  }
+
+  List<Map<String, dynamic>> get allArticlesFlattenedWithCompleted {
+    if (_data == null) return [];
+
+    final result = <Map<String, dynamic>>[];
+    
+    // 1. Collect ALL tasks
+    final allTasks = _data!.allTasks.toList();
+    
+    // 2. Sort tasks strictly by Date DESC (Latest First)
+    allTasks.sort((a, b) => b.isoDate.compareTo(a.isoDate));
+    
+    for (var task in allTasks) {
+      final articles = List<ArticleModel>.from(task.articles);
+      if (articles.isEmpty) continue;
+
+      // 3. Sort articles within the same task by source priority
+      articles.sort((a, b) => _compareSources(a.source, b.source));
+
+      for (var article in articles) {
+        result.add({
+          'task': task,
+          'article': article,
+        });
+      }
+    }
+    return result;
+  }
+
+  Future<void> setLastViewedUrl(String url) async {
+    if (_lastViewedUrl == url) return;
+    _lastViewedUrl = url;
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs?.setString('last_viewed_url', url);
+    notifyListeners();
+  }
+
+  Future<void> _loadLastViewedUrl() async {
+    _prefs ??= await SharedPreferences.getInstance();
+    _lastViewedUrl = _prefs?.getString('last_viewed_url');
+    notifyListeners();
+  }
+
+  int _compareSources(String? s1, String? s2) {
+    const order = ['vajiram', 'vision ias', 'next ias', 'insights ias'];
+    final source1 = s1?.toLowerCase() ?? '';
+    final source2 = s2?.toLowerCase() ?? '';
+    
+    final i1 = order.indexOf(source1);
+    final i2 = order.indexOf(source2);
+    
+    // If both not in list, sort alphabetically
+    if (i1 == -1 && i2 == -1) return source1.compareTo(source2);
+    
+    // If only one not in list, it goes last
+    if (i1 == -1) return 1;
+    if (i2 == -1) return -1;
+    
+    return i1.compareTo(i2);
   }
 
   void setNeedsVajiramLogin(bool value) {
@@ -139,6 +214,7 @@ class DashboardProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      await _loadLastViewedUrl();
       _data = await _repository.getDashboardData();
     } catch (e) {
       _error = e.toString();

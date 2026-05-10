@@ -1,0 +1,14 @@
+UPSC CA - Release Keystore Fingerprints
+Generated on: 10-May-2026
+
+Keystore Path: android/app/upload-keystore.jks
+Alias: upload
+
+SHA-1:
+D5:95:76:63:FD:EB:BD:E5:3E:3C:AF:9B:CD:66:12:16:BB:74:B5:77
+
+SHA-256:
+7F:F6:98:15:EB:5C:4D:F5:67:96:F7:C5:B2:33:25:03:F2:07:E9:C1:FC:AE:9E:4C:15:93:07:7E:56:3C:97:2E
+
+Instructions:
+Add these fingerprints to your Firebase Project Settings under the Android app section to enable Google Sign-In and other Firebase services for the release APK.

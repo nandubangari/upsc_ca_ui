@@ -213,7 +213,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       size: 20,
                       color: provider.isSyncing ? Colors.grey : primaryColor,
                     ),
-                    onPressed: provider.isSyncing ? null : () => unawaited(provider.syncAllArticles(forceRefresh: true)),
+                    onPressed: provider.isSyncing ? null : () => unawaited(provider.syncAllArticles(forceRefresh: false)),
                     tooltip: 'Sync Sources',
                   ),
                   const SizedBox(width: 4),

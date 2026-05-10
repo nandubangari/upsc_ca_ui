@@ -27,81 +27,124 @@ abstract class BaseSyncService {
     if (user == null) throw Exception("User must be logged in to sync");
 
     final now = DateTime.now();
-    final fiveDaysAgo = now.subtract(const Duration(days: 5));
+    final sevenDaysAgo = now.subtract(const Duration(days: 7));
 
-    // Iterate through months from startDate to now
-    DateTime currentMonth = DateTime(startDate.year, startDate.month);
+    // 1. Fetch Sync Metadata
+    final metadata = await _getSyncMetadata(user.uid);
+    final String? minSyncedStr = metadata?['minSyncedDate'];
+    final DateTime? oldMinSyncedDate = minSyncedStr != null ? DateTime.tryParse(minSyncedStr) : null;
+
+    // 2. Determine Sync Segments
+    // FLOW A: Historical Gap Sync (Only if needed)
+    // FLOW B: Standard Recent Sync (Last 7 days - Always runs)
+
+    bool hasHistoricalGap = oldMinSyncedDate == null || startDate.isBefore(oldMinSyncedDate);
     
-    while (currentMonth.isBefore(now) || (currentMonth.year == now.year && currentMonth.month == now.month)) {
-      onStatusUpdate?.call('Checking $sourceName for ${currentMonth.year}/${currentMonth.month}...');
-
-      // 1. Get existing data from Firestore for this source and month
-      final existingData = await getMonthDataFromFirestore(user.uid, currentMonth.year, currentMonth.month);
-
-      // 2. Decide if we need to fetch from network
-      // We fetch if:
-      // a) No data exists in Firestore for this month
-      // b) The month is the current month
-      // c) The month contains dates within the last 5 days
-      // d) forceRefresh is enabled
-      bool needsFetch = existingData.isEmpty || forceRefresh;
+    if (forceRefresh || hasHistoricalGap) {
+      DateTime gapStart = startDate;
+      // If not first sync and not force refresh, we only need to sync up to the oldMinSyncedDate
+      DateTime gapEnd = forceRefresh ? now : (oldMinSyncedDate ?? now);
       
-      if (!needsFetch) {
-        final isCurrentMonth = currentMonth.year == now.year && currentMonth.month == now.month;
-        if (isCurrentMonth) {
-          needsFetch = true;
-        } else {
-          final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
-          if (monthEnd.isAfter(fiveDaysAgo)) {
-            needsFetch = true;
-          }
-        }
-      }
+      AppLogger.d("[$sourceName] 🟢 FLOW A: Syncing Historical Gap from ${gapStart.toIso8601String()} to ${gapEnd.toIso8601String()}");
+      
+      await _executeSyncForRange(
+        user.uid, 
+        gapStart, 
+        gapEnd, 
+        startDate: startDate, 
+        forceRefresh: forceRefresh, 
+        onStatusUpdate: onStatusUpdate
+      );
+    } else {
+      AppLogger.d("[$sourceName] ⏩ Skipping Historical Check. History is already synced up to ${oldMinSyncedDate?.toIso8601String()}");
+    }
+
+    // ALWAYS perform FLOW B: Standard Recent Sync (Last 7 days)
+    AppLogger.d("[$sourceName] 🔵 FLOW B: Standard Sync (Last 7 Days)");
+    await _executeSyncForRange(
+      user.uid, 
+      sevenDaysAgo.isBefore(startDate) ? startDate : sevenDaysAgo, 
+      now, 
+      startDate: startDate, 
+      forceRefresh: forceRefresh, 
+      onStatusUpdate: onStatusUpdate
+    );
+
+    // 3. Update Metadata
+    await _updateSyncMetadata(user.uid,
+        minSyncedDate: (oldMinSyncedDate == null || startDate.isBefore(oldMinSyncedDate)) ? startDate : oldMinSyncedDate, 
+        lastSyncedAt: now);
+  }
+
+  /// Internal helper to sync a specific date range month-by-month
+  Future<void> _executeSyncForRange(
+    String uid, 
+    DateTime rangeStart, 
+    DateTime rangeEnd, {
+    required DateTime startDate,
+    bool forceRefresh = false,
+    Function(String)? onStatusUpdate,
+  }) async {
+    final now = DateTime.now();
+    DateTime currentMonth = DateTime(rangeStart.year, rangeStart.month);
+    
+    while (currentMonth.isBefore(rangeEnd) || (currentMonth.year == rangeEnd.year && currentMonth.month == rangeEnd.month)) {
+      // 1. Get existing data from Firestore
+      final existingData = await getMonthDataFromFirestore(uid, currentMonth.year, currentMonth.month);
+
+      // 2. Decide if we need to fetch
+      bool isCurrentMonth = currentMonth.year == now.year && currentMonth.month == now.month;
+      bool needsFetch = forceRefresh || existingData.isEmpty || isCurrentMonth;
 
       if (needsFetch) {
-        onStatusUpdate?.call('Fetching $sourceName from net: ${currentMonth.year}/${currentMonth.month}');
+        onStatusUpdate?.call('Syncing $sourceName: ${currentMonth.year}/${currentMonth.month}...');
         final List<DailyStudyData> netData = await fetchFromNetwork(
-          currentMonth.year, 
-          currentMonth.month, 
+          currentMonth.year,
+          currentMonth.month,
           startDate: startDate,
-          onStatusUpdate: onStatusUpdate
+          onStatusUpdate: onStatusUpdate,
         );
-        
-        // CRITICAL FIX: Only proceed with merge/save if we actually got data.
-        // If netData is empty (e.g. fetch failed), we DO NOT want to call _mergeAndSave
-        // especially with forceRefresh, because it would wipe out existing Firestore data.
-        if (netData.isEmpty) {
-          AppLogger.d("[$sourceName] No data received from network/cache for ${currentMonth.year}/${currentMonth.month}. Skipping save to preserve existing Firestore data.");
-        } else {
-          AppLogger.d("[$sourceName] Network fetch returned ${netData.length} daily entries for ${currentMonth.year}/${currentMonth.month}");
 
-          // Ensure we ONLY save data (articles AND quizzes) that is on or after the startDate
-          final filteredNetData = netData.map((d) {
+        if (netData.isNotEmpty) {
+          final filteredNetData = netData.where((d) {
             final itemDate = DateTime.tryParse(d.date);
-            if (itemDate == null) return d;
-            
-            final normalizedItemDate = DateTime(itemDate.year, itemDate.month, itemDate.day);
-            final normalizedStartDate = DateTime(startDate.year, startDate.month, startDate.day);
-            final normalizedNow = DateTime(now.year, now.month, now.day);
-            
-            final isWithinRange = (normalizedItemDate.isAtSameMomentAs(normalizedStartDate) || 
-                                 normalizedItemDate.isAfter(normalizedStartDate)) &&
-                                (normalizedItemDate.isAtSameMomentAs(normalizedNow) || 
-                                 normalizedItemDate.isBefore(normalizedNow));
+            if (itemDate == null) return false;
+            return (itemDate.isAtSameMomentAs(startDate) || itemDate.isAfter(startDate)) &&
+                   (itemDate.isAtSameMomentAs(now) || itemDate.isBefore(now));
+          }).toList();
 
-            if (!isWithinRange) {
-              return DailyStudyData(date: d.date, items: [], quizzes: []);
-            }
-            return d;
-          }).where((d) => d.items.isNotEmpty || d.quizzes.isNotEmpty).toList();
-
-          // 3. Merge and Save
-          await mergeAndSave(user.uid, currentMonth.year, currentMonth.month, existingData, filteredNetData, forceRefresh: forceRefresh);
+          await mergeAndSave(uid, currentMonth.year, currentMonth.month, existingData, filteredNetData, forceRefresh: forceRefresh);
         }
       }
-
-      // Move to next month
       currentMonth = DateTime(currentMonth.year, currentMonth.month + 1);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _getSyncMetadata(String uid) async {
+    try {
+      final doc = await _db.collection('users').doc(uid).collection('synced_articles').doc(sourceId).get();
+      return doc.data();
+    } catch (e) {
+      AppLogger.e("[$sourceName] Failed to fetch sync metadata", e);
+      return null;
+    }
+  }
+
+  Future<void> _updateSyncMetadata(String uid, {DateTime? minSyncedDate, DateTime? lastSyncedAt}) async {
+    try {
+      final Map<String, dynamic> data = {};
+      if (minSyncedDate != null) {
+        data['minSyncedDate'] = minSyncedDate.toIso8601String().split('T')[0];
+      }
+      if (lastSyncedAt != null) {
+        data['lastSyncedAt'] = lastSyncedAt.toIso8601String();
+      }
+
+      if (data.isNotEmpty) {
+        await _db.collection('users').doc(uid).collection('synced_articles').doc(sourceId).set(data, SetOptions(merge: true));
+      }
+    } catch (e) {
+      AppLogger.e("[$sourceName] Failed to update sync metadata", e);
     }
   }
 
@@ -122,8 +165,8 @@ abstract class BaseSyncService {
     final Map<String, List<ArticleModel>> results = {};
     
     data.forEach((date, itemsJson) {
-      final List<dynamic> list = itemsJson;
-      results[date] = list.map((i) => ArticleModel.fromJson(i)).toList();
+      final List<dynamic> list = itemsJson as List<dynamic>;
+      results[date] = list.map((i) => ArticleModel.fromJson(i as Map<String, dynamic>)).toList();
     });
 
     return results;
@@ -161,14 +204,11 @@ abstract class BaseSyncService {
       for (var incomingItem in daily.items) {
         final url = incomingItem.url ?? '';
         if (urlToIndex.containsKey(url)) {
-          // Check if we should update the item
           final index = urlToIndex[url]!;
           var existingItem = existingItems[index];
           bool itemChanged = false;
           
-          // Update title if it changed
           if (existingItem.title != incomingItem.title) {
-            AppLogger.d("[$sourceName] Title updated for $url: FROM: \"${existingItem.title}\" TO: \"${incomingItem.title}\"");
             existingItem = existingItem.copyWith(title: incomingItem.title);
             itemChanged = true;
           }
@@ -183,7 +223,6 @@ abstract class BaseSyncService {
                               existingSubtitle.toLowerCase() == "null";
 
           if (needsSubtitleUpdate && hasIncomingSubtitle) {
-            AppLogger.d("[$sourceName] Updating subtitle for $url");
             existingItem = existingItem.copyWith(subtitle: incomingItem.subtitle);
             itemChanged = true;
           }
@@ -204,11 +243,8 @@ abstract class BaseSyncService {
       }
       existing[date] = existingItems;
 
-      // Handle Quizzes
       if (daily.quizzes.isNotEmpty) {
         changed = true;
-        AppLogger.d("[$sourceName] Saving ${daily.quizzes.length} quizzes for $date");
-        // Quizzes are stored in a separate collection for easier status tracking
         final quizBatch = _db.batch();
         for (var quiz in daily.quizzes) {
           final quizId = quiz.title.hashCode.toString();
@@ -218,14 +254,12 @@ abstract class BaseSyncService {
             'source': quiz.source,
             'title': quiz.title,
             if (quiz.url != null) 'url': quiz.url,
-            'date': date, // Explicitly save date for easier retrieval later
+            'date': date,
           }, SetOptions(merge: true));
         }
         await quizBatch.commit();
       }
     }
-
-    AppLogger.d("[$sourceName] Sync Results - Added: $addedCount, Updated: $updatedCount, Duplicates: $duplicateCount");
 
     if (changed || existing.isEmpty) {
       final Map<String, dynamic> toSave = {};
@@ -237,7 +271,6 @@ abstract class BaseSyncService {
     }
   }
 
-  /// Updates the completion status of a specific article in Firestore
   Future<void> updateArticleStatus(String isoDate, String url, bool isCompleted, {String? completedAt}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -261,8 +294,8 @@ abstract class BaseSyncService {
       final data = doc.data()!;
       if (!data.containsKey(isoDate)) return;
 
-      final List<dynamic> itemsJson = data[isoDate];
-      final items = itemsJson.map((i) => ArticleModel.fromJson(i)).toList();
+      final List<dynamic> itemsJson = data[isoDate] as List<dynamic>;
+      final items = itemsJson.map((i) => ArticleModel.fromJson(i as Map<String, dynamic>)).toList();
 
       bool found = false;
       for (int i = 0; i < items.length; i++) {
@@ -279,14 +312,12 @@ abstract class BaseSyncService {
       if (found) {
         data[isoDate] = items.map((i) => i.toJson()).toList();
         await monthRef.set(data, SetOptions(merge: true));
-        AppLogger.d("[$sourceName] Updated completion status for $url to $isCompleted");
       }
     } catch (e) {
       AppLogger.e("[$sourceName] Failed to update article status", e);
     }
   }
 
-  /// Updates the completion status of a specific quiz in Firestore
   Future<void> updateQuizStatus(String isoDate, String quizTitle, bool isCompleted, {String? completedAt}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -311,14 +342,11 @@ abstract class BaseSyncService {
         'isCompleted': isCompleted,
         if (completedAt != null) ...{'completedAt': completedAt},
       });
-      AppLogger.d("[$sourceName] Updated quiz status for $quizTitle to $isCompleted (at $completedAt)");
     } catch (e) {
       AppLogger.e("[$sourceName] Failed to update quiz status", e);
     }
   }
 
-  /// Retrieves synced articles for this source from Firestore.
-  /// Optionally filters by startDate to optimize data retrieval.
   Future<Map<String, List<ArticleModel>>> getAllSyncedArticles({DateTime? startDate}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return {};
@@ -345,7 +373,7 @@ abstract class BaseSyncService {
       final data = doc.data();
       data.forEach((date, itemsJson) {
         if (itemsJson is List) {
-          final items = itemsJson.map((i) => ArticleModel.fromJson(i)).toList();
+          final items = itemsJson.map((i) => ArticleModel.fromJson(i as Map<String, dynamic>)).toList();
           allArticles.putIfAbsent(date, () => []).addAll(items);
         }
       });
@@ -354,8 +382,6 @@ abstract class BaseSyncService {
     return allArticles;
   }
 
-  /// Retrieves synced quizzes for this source from Firestore.
-  /// Optionally filters by startDate to optimize data retrieval.
   Future<Map<String, List<QuizModel>>> getAllSyncedQuizzes({DateTime? startDate}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return {};
