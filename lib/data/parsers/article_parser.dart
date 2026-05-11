@@ -9,11 +9,27 @@ import 'package:upsc_ca_ui/data/parsers/insightsias/insights_ias_article_extract
 import 'package:upsc_ca_ui/data/parsers/generic/generic_article_extractor.dart';
 
 class ArticleParser {
+  static final Map<String, List<ArticleContent>> _cache = {};
+  static const int _maxCacheSize = 20;
+
   /// Fetches and parses an article from the given URL.
   /// Uses a background isolate to prevent UI stutters during heavy HTML parsing.
   Future<List<ArticleContent>> fetchAndParseArticle(String url) async {
+    if (_cache.containsKey(url)) {
+      AppLogger.d('[Parser] Returning cached article for $url');
+      return _cache[url]!;
+    }
+
     try {
-      return await compute(_extractInBackground, url);
+      final result = await compute(_extractInBackground, url);
+      
+      // Manage cache size
+      if (_cache.length >= _maxCacheSize) {
+        _cache.remove(_cache.keys.first);
+      }
+      _cache[url] = result;
+      
+      return result;
     } catch (e, stack) {
       AppLogger.e('[Parser] Failed to extract article from $url', e, stack);
       rethrow;

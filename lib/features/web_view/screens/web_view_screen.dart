@@ -47,6 +47,13 @@ class _WebViewScreenState extends State<WebViewScreen> {
     unawaited(_initController());
   }
 
+  @override
+  void dispose() {
+    // Aggressively clear WebView resources to release RAM
+    unawaited(_controller.loadRequest(Uri.parse('about:blank')));
+    super.dispose();
+  }
+
   Future<void> _initController() async {
     _controller = WebViewController();
     await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);

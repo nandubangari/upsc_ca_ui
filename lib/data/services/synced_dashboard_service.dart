@@ -36,7 +36,7 @@ class SyncedDashboardService implements DashboardService {
   SyncedDashboardService(this._baseService);
 
   @override
-  Future<DashboardData> fetchDashboardData() async {
+  Future<DashboardData> fetchDashboardData({int? monthsBack}) async {
     // 1. Fetch base dashboard data and user profile in parallel
     final results = await Future.wait([
       _baseService.fetchDashboardData(),
@@ -45,6 +45,18 @@ class SyncedDashboardService implements DashboardService {
     
     final DashboardData baseData = results[0] as DashboardData;
     final profile = results[1] as ProfileData?;
+    
+    // Determine the window of months to fetch
+    final now = DateTime.now();
+    final List<String> targetMonthIds = [];
+    
+    if (monthsBack != null) {
+      for (int i = 0; i < monthsBack; i++) {
+        final date = DateTime(now.year, now.month - i);
+        targetMonthIds.add('${date.year}_${date.month.toString().padLeft(2, '0')}');
+      }
+    }
+
     final startDate = profile?.startDate ?? DateTime(2000);
     final normalizedStartDate = DateTime(startDate.year, startDate.month, startDate.day);
     final startDateIso = DateFormatter.toIso(normalizedStartDate);
@@ -55,9 +67,29 @@ class SyncedDashboardService implements DashboardService {
     
     final List<Future<void>> fetchFutures = _syncServices.map((service) async {
       try {
+        final List<String> specificMonths = [];
+        if (targetMonthIds.isNotEmpty) {
+          specificMonths.addAll(targetMonthIds);
+          
+          // Optimization: Also fetch historical "uncompleted" months
+          final metadata = await service.getSyncMetadata();
+          final List<dynamic>? uncompleted = metadata?['uncompletedMonths'];
+          if (uncompleted != null) {
+            for (var m in uncompleted) {
+              if (!specificMonths.contains(m)) specificMonths.add(m as String);
+            }
+          }
+        }
+
         final sourceResults = await Future.wait([
-          service.getAllSyncedArticles(startDate: profile?.startDate),
-          service.getAllSyncedQuizzes(startDate: profile?.startDate),
+          service.getAllSyncedArticles(
+            startDate: monthsBack == null ? profile?.startDate : null,
+            specificMonths: targetMonthIds.isNotEmpty ? specificMonths : null,
+          ),
+          service.getAllSyncedQuizzes(
+            startDate: monthsBack == null ? profile?.startDate : null,
+            specificMonths: targetMonthIds.isNotEmpty ? specificMonths : null,
+          ),
         ]);
         
         final Map<String, List<ArticleModel>> sourceArticles = sourceResults[0] as Map<String, List<ArticleModel>>;
@@ -66,13 +98,6 @@ class SyncedDashboardService implements DashboardService {
 
         sourceArticles.forEach((date, items) {
           if (date.compareTo(startDateIso) >= 0) {
-            for (var item in items) {
-              if (!item.isCustom || item.source == null) {
-                // Ensure source is set for merged items
-                // This might need a copyWith if model is immutable
-                // But it's easier to handle during merge below.
-              }
-            }
             allSyncedArticles.putIfAbsent(date, () => []).addAll(items.map((i) => 
               (!i.isCustom || i.source == null) ? i.copyWith(source: sourceName) : i
             ));

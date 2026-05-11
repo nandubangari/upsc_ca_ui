@@ -22,10 +22,18 @@ class DashboardProvider with ChangeNotifier {
   bool _needsVajiramLogin = false;
   String? _lastViewedUrl;
   SharedPreferences? _prefs;
+  bool _isDashboardVisible = true;
+  bool _isReaderOpen = false;
+  int _monthsLoaded = 3;
+  bool _isLoadingMore = false;
   
   // Pagination for completed tasks
-  int _completedTasksPageSize = 10;
+  final int _completedTasksPageSize = 10;
   int _completedTasksCurrentCount = 10;
+  
+  // Optimization: Cached flattened lists to avoid re-calculating on every build
+  List<Map<String, dynamic>>? _cachedFlattenedUnread;
+  List<Map<String, dynamic>>? _cachedFlattenedAll;
   
   final DashboardRepository _repository = DashboardRepository();
 
@@ -36,6 +44,9 @@ class DashboardProvider with ChangeNotifier {
   String? get syncStatus => _syncStatus;
   bool get needsVajiramLogin => _needsVajiramLogin;
   String? get lastViewedUrl => _lastViewedUrl;
+  bool get isDashboardVisible => _isDashboardVisible;
+  bool get isReaderOpen => _isReaderOpen;
+  bool get isLoadingMore => _isLoadingMore;
 
   List<DashboardTask> get visibleCompletedTasks {
     if (_data == null) return [];
@@ -73,6 +84,7 @@ class DashboardProvider with ChangeNotifier {
 
   List<Map<String, dynamic>> get allArticlesFlattened {
     if (_data == null) return [];
+    if (_cachedFlattenedUnread != null) return _cachedFlattenedUnread!;
 
     final result = <Map<String, dynamic>>[];
     
@@ -97,11 +109,13 @@ class DashboardProvider with ChangeNotifier {
         });
       }
     }
+    _cachedFlattenedUnread = result;
     return result;
   }
 
   List<Map<String, dynamic>> get allArticlesFlattenedWithCompleted {
     if (_data == null) return [];
+    if (_cachedFlattenedAll != null) return _cachedFlattenedAll!;
 
     final result = <Map<String, dynamic>>[];
     
@@ -125,7 +139,13 @@ class DashboardProvider with ChangeNotifier {
         });
       }
     }
+    _cachedFlattenedAll = result;
     return result;
+  }
+
+  void _invalidateCaches() {
+    _cachedFlattenedUnread = null;
+    _cachedFlattenedAll = null;
   }
 
   Future<void> setLastViewedUrl(String url) async {
@@ -165,8 +185,74 @@ class DashboardProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  void setDashboardVisible(bool visible) {
+    if (_isDashboardVisible == visible) return;
+    _isDashboardVisible = visible;
+    AppLogger.d('DEBUG: [DashboardProvider] Dashboard visibility: $_isDashboardVisible');
+    notifyListeners();
+  }
+
+  void setReaderOpen(bool open) {
+    if (_isReaderOpen == open) return;
+    _isReaderOpen = open;
+    AppLogger.d('DEBUG: [DashboardProvider] Reader open: $_isReaderOpen');
+    notifyListeners();
+  }
+
+  bool isArticleCompleted(String? url) {
+    if (url == null || _data == null) return false;
+    for (var t in _data!.allTasks) {
+      for (var a in t.articles) {
+        if (a.url == url) return a.isCompleted;
+      }
+    }
+    return false;
+  }
+
+  bool isQuizCompleted(String? source, String title) {
+    if (_data == null) return false;
+    for (var t in _data!.allTasks) {
+      for (var q in t.quizzes) {
+        if (q.title == title && q.source == source) return q.isCompleted;
+      }
+    }
+    return false;
+  }
+
+  double getTaskProgress(String date) {
+    if (_data == null) return 0;
+    try {
+      final task = _data!.allTasks.firstWhere((t) => t.date == date);
+      final total = task.totalArticles + task.totalQuizzes;
+      if (total == 0) return 0;
+      return (task.articlesDone + task.quizzesDone) / total;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Map<String, int> getTaskStats(String date) {
+    if (_data == null) return {'articlesDone': 0, 'totalArticles': 0, 'quizzesDone': 0, 'totalQuizzes': 0};
+    try {
+      final task = _data!.allTasks.firstWhere((t) => t.date == date);
+      return {
+        'articlesDone': task.articlesDone,
+        'totalArticles': task.totalArticles,
+        'quizzesDone': task.quizzesDone,
+        'totalQuizzes': task.totalQuizzes,
+      };
+    } catch (_) {
+      return {'articlesDone': 0, 'totalArticles': 0, 'quizzesDone': 0, 'totalQuizzes': 0};
+    }
+  }
+
   /// Syncs all configured article sources.
-  Future<void> syncAllArticles({bool forceRefresh = false, bool isRetryAfterLogin = false}) async {
+  Future<void> syncAllArticles({bool forceRefresh = false, bool isRetryAfterLogin = false, bool onlyRecent = false}) async {
+    if (_isReaderOpen) {
+      AppLogger.d('DEBUG: [DashboardProvider] Reader is open, skipping background sync');
+      return;
+    }
+
     _isSyncing = true;
     _syncStatus = isRetryAfterLogin ? 'Retrying sync after login...' : (forceRefresh ? 'Force refreshing sources...' : 'Starting sync...');
     notifyListeners();
@@ -178,10 +264,12 @@ class DashboardProvider with ChangeNotifier {
           await _repository.syncAll(
             profile.startDate,
             forceRefresh: forceRefresh,
+            onlyRecent: onlyRecent,
             onStatusUpdate: (status) {
               _syncStatus = status;
               notifyListeners();
             },
+            shouldPause: () => _isReaderOpen,
           );
         } catch (e) {
           if (e.toString().contains("LOGIN_REQUIRED")) {
@@ -211,15 +299,40 @@ class DashboardProvider with ChangeNotifier {
   Future<void> loadDashboardData() async {
     _isLoading = true;
     _error = null;
+    _monthsLoaded = 3; // Reset to default on full reload
+    _invalidateCaches();
     notifyListeners();
 
     try {
       await _loadLastViewedUrl();
-      _data = await _repository.getDashboardData();
+      _data = await _repository.getDashboardData(monthsBack: _monthsLoaded);
     } catch (e) {
       _error = e.toString();
     } finally {
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadMoreMonths() async {
+    if (_isLoadingMore || _data == null) return;
+    
+    _isLoadingMore = true;
+    notifyListeners();
+
+    try {
+      _monthsLoaded += 3;
+      final newData = await _repository.getDashboardData(monthsBack: _monthsLoaded);
+      
+      // Since fetchDashboardData currently returns a full set for the window,
+      // we can just replace the data. 
+      // Optimization: In a more complex app, we'd only fetch the NEW months and merge.
+      _data = newData;
+      _invalidateCaches();
+    } catch (e) {
+      AppLogger.e("Failed to load more history", e);
+    } finally {
+      _isLoadingMore = false;
       notifyListeners();
     }
   }
@@ -298,6 +411,7 @@ class DashboardProvider with ChangeNotifier {
       // Final categorization logic unified
       final allTasks = _data!.allTasks.map((t) => t.date == task.date ? updatedTask : t).toList();
       _data = TaskCategorizer.categorize(allTasks: allTasks, daysLeft: _data!.daysLeft);
+      _invalidateCaches();
       
       notifyListeners();
     }

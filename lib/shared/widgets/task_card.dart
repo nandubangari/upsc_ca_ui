@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
 import 'package:upsc_ca_ui/shared/models/repetition_data.dart';
 import 'progress_bar.dart';
 import 'package:upsc_ca_ui/features/home/screens/task_detail_screen.dart';
+import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
 
 class TaskCard extends StatelessWidget {
   final DashboardTask task;
@@ -83,32 +85,44 @@ class TaskCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          _buildMicroStat(context, Icons.article_rounded, '${task.articlesDone}/${task.totalArticles}'),
-                          const SizedBox(width: 12),
-                          _buildMicroStat(context, Icons.quiz_rounded, '${task.quizzesDone}/${task.totalQuizzes}'),
-                          if (isRevision) ...[
-                            const Spacer(),
-                            Text(
-                              'DUE IN ${task.dueDays}D',
-                              style: TextStyle(
-                                color: primaryColor,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ],
+                      Selector<DashboardProvider, String>(
+                        selector: (_, p) {
+                          final stats = p.getTaskStats(task.date);
+                          return '${stats['articlesDone']}/${stats['totalArticles']}/${stats['quizzesDone']}/${stats['totalQuizzes']}';
+                        },
+                        builder: (context, statsStr, _) {
+                          final parts = statsStr.split('/');
+                          return Row(
+                            children: [
+                              _buildMicroStat(context, Icons.article_rounded, '${parts[0]}/${parts[1]}'),
+                              const SizedBox(width: 12),
+                              _buildMicroStat(context, Icons.quiz_rounded, '${parts[2]}/${parts[3]}'),
+                              if (isRevision) ...[
+                                const Spacer(),
+                                Text(
+                                  'DUE IN ${task.dueDays}D',
+                                  style: TextStyle(
+                                    color: primaryColor,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          );
+                        }
                       ),
                     ],
                   ),
                 ),
                 
                 if (!isRevision) 
-                  ProgressBar(
-                    progress: (task.articlesDone + task.quizzesDone) / (task.totalArticles + task.totalQuizzes)
+                  Selector<DashboardProvider, double>(
+                    selector: (_, p) => p.getTaskProgress(task.date),
+                    builder: (context, progress, _) {
+                      return ProgressBar(progress: progress);
+                    }
                   ),
               ],
             ),
@@ -219,7 +233,7 @@ class _CompletedTaskCardState extends State<CompletedTaskCard> {
           ),
           AnimatedCrossFade(
             firstChild: const SizedBox(width: double.infinity),
-            secondChild: _buildAnalyticsGrid(context),
+            secondChild: _isExpanded ? _buildAnalyticsGrid(context) : const SizedBox(width: double.infinity),
             crossFadeState: _isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
             duration: const Duration(milliseconds: 250),
           ),

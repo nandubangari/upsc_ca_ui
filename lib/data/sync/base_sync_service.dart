@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -21,7 +22,9 @@ abstract class BaseSyncService {
   Future<void> syncRange({
     required DateTime startDate,
     bool forceRefresh = false,
+    bool onlyRecent = false,
     Function(String)? onStatusUpdate,
+    bool Function()? shouldPause,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception("User must be logged in to sync");
@@ -33,14 +36,25 @@ abstract class BaseSyncService {
     final metadata = await _getSyncMetadata(user.uid);
     final String? minSyncedStr = metadata?['minSyncedDate'];
     final DateTime? oldMinSyncedDate = minSyncedStr != null ? DateTime.tryParse(minSyncedStr) : null;
+    
+    // Safety: If uncompletedMonths is missing from metadata but we have history, rebuild it once
+    if (metadata != null && !metadata.containsKey('uncompletedMonths')) {
+      AppLogger.d("[$sourceName] 🔄 Rebuilding Uncompleted Index...");
+      unawaited(refreshUncompletedIndex(user.uid));
+    }
 
     // 2. Determine Sync Segments
-    // FLOW A: Historical Gap Sync (Only if needed)
+    // FLOW A: Historical Gap Sync (Only if needed and not onlyRecent)
     // FLOW B: Standard Recent Sync (Last 7 days - Always runs)
 
     bool hasHistoricalGap = oldMinSyncedDate == null || startDate.isBefore(oldMinSyncedDate);
     
-    if (forceRefresh || hasHistoricalGap) {
+    if (!onlyRecent && (forceRefresh || hasHistoricalGap)) {
+      if (shouldPause?.call() ?? false) {
+        AppLogger.d("[$sourceName] ⏸️ Sync paused (Reader open)");
+        return;
+      }
+
       DateTime gapStart = startDate;
       // If not first sync and not force refresh, we only need to sync up to the oldMinSyncedDate
       DateTime gapEnd = forceRefresh ? now : (oldMinSyncedDate ?? now);
@@ -53,13 +67,34 @@ abstract class BaseSyncService {
         gapEnd, 
         startDate: startDate, 
         forceRefresh: forceRefresh, 
-        onStatusUpdate: onStatusUpdate
+        onStatusUpdate: onStatusUpdate,
+        shouldPause: shouldPause,
+        onMonthSynced: (syncedMonthEnd) async {
+          // Update minSyncedDate incrementally if we are moving forward from startDate
+          final currentMin = oldMinSyncedDate ?? gapEnd;
+          if (startDate.isBefore(currentMin)) {
+            // If we just finished a month that includes our target startDate or is adjacent, 
+            // we update metadata to show we've covered that part.
+            // For simplicity, we update it to the earliest date we've successfully synced in this session
+            // that is >= startDate.
+            await _updateSyncMetadata(user.uid, minSyncedDate: startDate);
+          }
+        },
       );
     } else {
-      AppLogger.d("[$sourceName] ⏩ Skipping Historical Check. History is already synced up to ${oldMinSyncedDate?.toIso8601String()}");
+      if (onlyRecent) {
+        AppLogger.d("[$sourceName] ⏭️ Skipping FLOW A (onlyRecent=true)");
+      } else {
+        AppLogger.d("[$sourceName] ⏩ Skipping Historical Check. History is already synced up to ${oldMinSyncedDate?.toIso8601String() ?? 'N/A'}");
+      }
     }
 
     // ALWAYS perform FLOW B: Standard Recent Sync (Last 7 days)
+    if (shouldPause?.call() ?? false) {
+      AppLogger.d("[$sourceName] ⏸️ Sync paused before FLOW B");
+      return;
+    }
+
     AppLogger.d("[$sourceName] 🔵 FLOW B: Standard Sync (Last 7 Days)");
     await _executeSyncForRange(
       user.uid, 
@@ -67,12 +102,14 @@ abstract class BaseSyncService {
       now, 
       startDate: startDate, 
       forceRefresh: forceRefresh, 
-      onStatusUpdate: onStatusUpdate
+      onStatusUpdate: onStatusUpdate,
+      shouldPause: shouldPause,
+      alwaysFetch: true,
     );
 
-    // 3. Update Metadata
+    // 3. Final Metadata Update
     await _updateSyncMetadata(user.uid,
-        minSyncedDate: (oldMinSyncedDate == null || startDate.isBefore(oldMinSyncedDate)) ? startDate : oldMinSyncedDate, 
+        minSyncedDate: (!onlyRecent && (oldMinSyncedDate == null || startDate.isBefore(oldMinSyncedDate))) ? startDate : oldMinSyncedDate, 
         lastSyncedAt: now);
   }
 
@@ -84,17 +121,25 @@ abstract class BaseSyncService {
     required DateTime startDate,
     bool forceRefresh = false,
     Function(String)? onStatusUpdate,
+    bool Function()? shouldPause,
+    bool alwaysFetch = false,
+    Future<void> Function(DateTime)? onMonthSynced,
   }) async {
     final now = DateTime.now();
     DateTime currentMonth = DateTime(rangeStart.year, rangeStart.month);
     
     while (currentMonth.isBefore(rangeEnd) || (currentMonth.year == rangeEnd.year && currentMonth.month == rangeEnd.month)) {
+      if (shouldPause?.call() ?? false) {
+        AppLogger.d("[$sourceName] ⏸️ Loop paused");
+        break;
+      }
+
       // 1. Get existing data from Firestore
       final existingData = await getMonthDataFromFirestore(uid, currentMonth.year, currentMonth.month);
 
       // 2. Decide if we need to fetch
       bool isCurrentMonth = currentMonth.year == now.year && currentMonth.month == now.month;
-      bool needsFetch = forceRefresh || existingData.isEmpty || isCurrentMonth;
+      bool needsFetch = alwaysFetch || forceRefresh || existingData.isEmpty || isCurrentMonth;
 
       if (needsFetch) {
         onStatusUpdate?.call('Syncing $sourceName: ${currentMonth.year}/${currentMonth.month}...');
@@ -116,8 +161,20 @@ abstract class BaseSyncService {
           await mergeAndSave(uid, currentMonth.year, currentMonth.month, existingData, filteredNetData, forceRefresh: forceRefresh);
         }
       }
+      
+      if (onMonthSynced != null) {
+        final monthEnd = DateTime(currentMonth.year, currentMonth.month + 1, 0);
+        await onMonthSynced(monthEnd);
+      }
+
       currentMonth = DateTime(currentMonth.year, currentMonth.month + 1);
     }
+  }
+
+  Future<Map<String, dynamic>?> getSyncMetadata() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return null;
+    return _getSyncMetadata(user.uid);
   }
 
   Future<Map<String, dynamic>?> _getSyncMetadata(String uid) async {
@@ -130,7 +187,7 @@ abstract class BaseSyncService {
     }
   }
 
-  Future<void> _updateSyncMetadata(String uid, {DateTime? minSyncedDate, DateTime? lastSyncedAt}) async {
+  Future<void> _updateSyncMetadata(String uid, {DateTime? minSyncedDate, DateTime? lastSyncedAt, List<String>? uncompletedMonths}) async {
     try {
       final Map<String, dynamic> data = {};
       if (minSyncedDate != null) {
@@ -139,6 +196,9 @@ abstract class BaseSyncService {
       if (lastSyncedAt != null) {
         data['lastSyncedAt'] = lastSyncedAt.toIso8601String();
       }
+      if (uncompletedMonths != null) {
+        data['uncompletedMonths'] = uncompletedMonths;
+      }
 
       if (data.isNotEmpty) {
         await _db.collection('users').doc(uid).collection('synced_articles').doc(sourceId).set(data, SetOptions(merge: true));
@@ -146,6 +206,97 @@ abstract class BaseSyncService {
     } catch (e) {
       AppLogger.e("[$sourceName] Failed to update sync metadata", e);
     }
+  }
+
+  Future<void> updateUncompletedIndexForMonth(String uid, String monthId) async {
+    final doc = await _db
+        .collection('users')
+        .doc(uid)
+        .collection('synced_articles')
+        .doc(sourceId)
+        .collection('months')
+        .doc(monthId)
+        .get();
+
+    if (!doc.exists) return;
+
+    final data = doc.data()!;
+    bool hasUncompleted = false;
+    
+    data.forEach((date, itemsJson) {
+      if (itemsJson is List) {
+        if (itemsJson.any((i) => i['isCompleted'] != true)) {
+          hasUncompleted = true;
+        }
+      }
+    });
+
+    if (!hasUncompleted) {
+      final quizzesQuery = await doc.reference.collection('quizzes')
+          .where('isCompleted', isNotEqualTo: true)
+          .limit(1)
+          .get();
+      if (quizzesQuery.docs.isNotEmpty) {
+        hasUncompleted = true;
+      }
+    }
+
+    final metadata = await _getSyncMetadata(uid);
+    final List<String> uncompleted = List<String>.from(metadata?['uncompletedMonths'] ?? []);
+    
+    if (hasUncompleted) {
+      if (!uncompleted.contains(monthId)) {
+        uncompleted.add(monthId);
+        await _updateSyncMetadata(uid, uncompletedMonths: uncompleted);
+      }
+    } else {
+      if (uncompleted.contains(monthId)) {
+        uncompleted.remove(monthId);
+        await _updateSyncMetadata(uid, uncompletedMonths: uncompleted);
+      }
+    }
+  }
+
+  Future<void> refreshUncompletedIndex(String uid) async {
+    final monthsQuery = await _db
+        .collection('users')
+        .doc(uid)
+        .collection('synced_articles')
+        .doc(sourceId)
+        .collection('months')
+        .get();
+
+    final List<String> uncompleted = [];
+    for (var doc in monthsQuery.docs) {
+      final data = doc.data();
+      bool hasUncompleted = false;
+      
+      // Check articles in root of doc
+      data.forEach((date, itemsJson) {
+        if (itemsJson is List) {
+          if (itemsJson.any((i) => i['isCompleted'] != true)) {
+            hasUncompleted = true;
+          }
+        }
+      });
+
+      // Also check quizzes subcollection
+      if (!hasUncompleted) {
+        final quizzesQuery = await doc.reference.collection('quizzes')
+            .where('isCompleted', isNotEqualTo: true)
+            .limit(1)
+            .get();
+        if (quizzesQuery.docs.isNotEmpty) {
+          hasUncompleted = true;
+        }
+      }
+
+      if (hasUncompleted) {
+        uncompleted.add(doc.id);
+      }
+    }
+
+    await _updateSyncMetadata(uid, uncompletedMonths: uncompleted);
   }
 
   Future<Map<String, List<ArticleModel>>> getMonthDataFromFirestore(String uid, int year, int month) async {
@@ -181,9 +332,6 @@ abstract class BaseSyncService {
     bool forceRefresh = false,
   }) async {
     bool changed = false;
-    int addedCount = 0;
-    int updatedCount = 0;
-    int duplicateCount = 0;
 
     final docId = '${year}_${month.toString().padLeft(2, '0')}';
     final monthRef = _db
@@ -229,15 +377,11 @@ abstract class BaseSyncService {
 
           if (itemChanged) {
             existingItems[index] = existingItem;
-            updatedCount++;
             changed = true;
-          } else {
-            duplicateCount++;
           }
         } else {
           existingItems.add(incomingItem);
           urlToIndex[incomingItem.url ?? ''] = existingItems.length - 1;
-          addedCount++;
           changed = true;
         }
       }
@@ -268,7 +412,11 @@ abstract class BaseSyncService {
       });
 
       await monthRef.set(toSave, SetOptions(merge: true));
+      
+      // Update uncompleted index for this specific month
+      unawaited(updateUncompletedIndexForMonth(uid, docId));
     }
+    AppLogger.d("[$sourceName] Sync Complete: $docId. Changed: $changed");
   }
 
   Future<void> updateArticleStatus(String isoDate, String url, bool isCompleted, {String? completedAt}) async {
@@ -312,6 +460,7 @@ abstract class BaseSyncService {
       if (found) {
         data[isoDate] = items.map((i) => i.toJson()).toList();
         await monthRef.set(data, SetOptions(merge: true));
+        unawaited(updateUncompletedIndexForMonth(user.uid, docId));
       }
     } catch (e) {
       AppLogger.e("[$sourceName] Failed to update article status", e);
@@ -342,12 +491,13 @@ abstract class BaseSyncService {
         'isCompleted': isCompleted,
         if (completedAt != null) ...{'completedAt': completedAt},
       });
+      unawaited(updateUncompletedIndexForMonth(user.uid, docId));
     } catch (e) {
       AppLogger.e("[$sourceName] Failed to update quiz status", e);
     }
   }
 
-  Future<Map<String, List<ArticleModel>>> getAllSyncedArticles({DateTime? startDate}) async {
+  Future<Map<String, List<ArticleModel>>> getAllSyncedArticles({DateTime? startDate, List<String>? specificMonths}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return {};
 
@@ -360,6 +510,27 @@ abstract class BaseSyncService {
 
     QuerySnapshot<Map<String, dynamic>> snapshot;
     
+    if (specificMonths != null && specificMonths.isNotEmpty) {
+      // Fetch only specific months (e.g. uncompleted ones)
+      // Firestore doesn't support whereIn on document IDs easily for subcollections in a single query if too many
+      // But we can fetch them in parallel.
+      final List<Future<DocumentSnapshot<Map<String, dynamic>>>> futures = specificMonths.map((id) => query.doc(id).get()).toList();
+      final docs = await Future.wait(futures);
+      
+      final Map<String, List<ArticleModel>> allArticles = {};
+      for (var doc in docs) {
+        if (!doc.exists) continue;
+        final data = doc.data()!;
+        data.forEach((date, itemsJson) {
+          if (itemsJson is List) {
+            final items = itemsJson.map((i) => ArticleModel.fromJson(i as Map<String, dynamic>)).toList();
+            allArticles.putIfAbsent(date, () => []).addAll(items);
+          }
+        });
+      }
+      return allArticles;
+    }
+
     if (startDate != null) {
       final minDocId = '${startDate.year}_${startDate.month.toString().padLeft(2, '0')}';
       snapshot = await query.where(FieldPath.documentId, isGreaterThanOrEqualTo: minDocId).get();
@@ -382,7 +553,7 @@ abstract class BaseSyncService {
     return allArticles;
   }
 
-  Future<Map<String, List<QuizModel>>> getAllSyncedQuizzes({DateTime? startDate}) async {
+  Future<Map<String, List<QuizModel>>> getAllSyncedQuizzes({DateTime? startDate, List<String>? specificMonths}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return {};
 
@@ -393,20 +564,29 @@ abstract class BaseSyncService {
         .doc(sourceId)
         .collection('months');
 
-    QuerySnapshot<Map<String, dynamic>> snapshot;
+    final List<DocumentSnapshot<Map<String, dynamic>>> monthDocs;
 
-    if (startDate != null) {
+    if (specificMonths != null && specificMonths.isNotEmpty) {
+      final List<Future<DocumentSnapshot<Map<String, dynamic>>>> futures = specificMonths.map((id) => query.doc(id).get()).toList();
+      final snapshots = await Future.wait(futures);
+      monthDocs = snapshots.where((s) => s.exists).toList();
+    } else if (startDate != null) {
       final minDocId = '${startDate.year}_${startDate.month.toString().padLeft(2, '0')}';
-      snapshot = await query.where(FieldPath.documentId, isGreaterThanOrEqualTo: minDocId).get();
+      final snapshot = await query.where(FieldPath.documentId, isGreaterThanOrEqualTo: minDocId).get();
+      monthDocs = snapshot.docs;
     } else {
-      snapshot = await query.get();
+      final snapshot = await query.get();
+      monthDocs = snapshot.docs;
     }
 
     final Map<String, List<QuizModel>> allQuizzes = {};
 
-    for (var monthDoc in snapshot.docs) {
-      final quizSnapshot = await monthDoc.reference.collection('quizzes').get();
-      for (var quizDoc in quizSnapshot.docs) {
+    final List<Future<QuerySnapshot<Map<String, dynamic>>>> quizFutures = monthDocs.map((doc) => doc.reference.collection('quizzes').get()).toList();
+    final List<QuerySnapshot<Map<String, dynamic>>> quizSnapshots = await Future.wait(quizFutures);
+
+    for (int i = 0; i < monthDocs.length; i++) {
+      final monthSnapshot = quizSnapshots[i];
+      for (var quizDoc in monthSnapshot.docs) {
         final data = quizDoc.data();
         final date = data['date'] as String? ?? '0000-00-00'; 
         final quiz = QuizModel.fromJson(data);

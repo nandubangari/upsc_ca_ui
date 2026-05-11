@@ -68,30 +68,32 @@ class ArticleTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
-      ),
-      child: Table(
-        border: TableBorder.symmetric(inside: BorderSide(color: isDark ? Colors.white12 : Colors.black12)),
-        children: rows.map((row) {
-          return TableRow(
-            children: row.map((cell) {
-              return Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  cell,
-                  style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.black87,
-                    fontSize: 14,
-                    height: 1.4,
+    return RepaintBoundary(
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+        ),
+        child: Table(
+          border: TableBorder.symmetric(inside: BorderSide(color: isDark ? Colors.white12 : Colors.black12)),
+          children: rows.map((row) {
+            return TableRow(
+              children: row.map((cell) {
+                return Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    cell,
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87,
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
                   ),
-                ),
-              );
-            }).toList(),
-          );
-        }).toList(),
+                );
+              }).toList(),
+            );
+          }).toList(),
+        ),
       ),
     );
   }
@@ -159,32 +161,34 @@ class ArticleInfoBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 24),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.blueGrey.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.blueGrey.withValues(alpha: 0.1),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            data.heading,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.primary,
-              fontSize: isTablet ? 18 : 16,
-              fontWeight: FontWeight.w800,
-              height: 1.4,
-            ),
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 24),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.blueGrey.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.blueGrey.withValues(alpha: 0.1),
+            width: 1,
           ),
-          const SizedBox(height: 16),
-          ...data.items.map((item) => _buildInfoItem(context, item, isTablet, isDark)),
-        ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              data.heading,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: isTablet ? 18 : 16,
+                fontWeight: FontWeight.w800,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...data.items.map((item) => _buildInfoItem(context, item, isTablet, isDark)),
+          ],
+        ),
       ),
     );
   }

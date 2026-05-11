@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
 import 'dart:math' as math;
 
 class GradientBackground extends StatefulWidget {
@@ -34,6 +36,18 @@ class _GradientBackgroundState extends State<GradientBackground> with SingleTick
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final backgroundColor = theme.scaffoldBackgroundColor;
+    
+    // Support pausing animation via DashboardProvider visibility if applicable
+    try {
+      final isDashboardVisible = context.select<DashboardProvider, bool>((p) => p.isDashboardVisible);
+      if (!isDashboardVisible && _controller.isAnimating) {
+        _controller.stop();
+      } else if (isDashboardVisible && !_controller.isAnimating) {
+        unawaited(_controller.repeat());
+      }
+    } catch (_) {
+      // Not under DashboardProvider, just let it run
+    }
 
     return Scaffold(
       backgroundColor: backgroundColor,

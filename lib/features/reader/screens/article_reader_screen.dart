@@ -3,6 +3,7 @@ import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
@@ -43,10 +44,17 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
     super.initState();
     // Initialize with 0, we will jump to the correct index in build once data is ready
     _pageController = PageController();
+    
+    // Notify provider that reader is open to pause background tasks
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<DashboardProvider>().setReaderOpen(true);
+    });
   }
 
   @override
   void dispose() {
+    // Notify provider that reader is closed
+    context.read<DashboardProvider>().setReaderOpen(false);
     _pageController.dispose();
     super.dispose();
   }
@@ -182,19 +190,95 @@ class ArticleContentView extends StatefulWidget {
   State<ArticleContentView> createState() => _ArticleContentViewState();
 }
 
-class _ArticleContentViewState extends State<ArticleContentView> with AutomaticKeepAliveClientMixin {
+class _ArticleContentViewState extends State<ArticleContentView> {
   final ArticleParser _parser = ArticleParser();
   late Future<List<ArticleContent>> _articleFuture;
   SelectedContent? _selectedContent;
   bool _isTransitioning = false;
 
-  @override
-  bool get wantKeepAlive => true;
+  // Caching for flattened items to avoid expensive re-calculation on every rebuild
+  List<ArticleContent>? _cacheArticles;
+  String? _cacheInitialTitle;
+  List<dynamic>? _cacheFlattenedItems;
+  String? _cacheMainTitle;
 
   @override
   void initState() {
     super.initState();
     _articleFuture = _parser.fetchAndParseArticle(widget.url);
+  }
+
+  void _updateCache(List<ArticleContent> articles) {
+    if (_cacheArticles == articles && _cacheInitialTitle == widget.initialTitle) {
+      return;
+    }
+
+    _cacheArticles = articles;
+    _cacheInitialTitle = widget.initialTitle;
+
+    final mainDisplayTitle = _getBestTitle(widget.initialTitle, articles.first.title, articles.length > 1);
+    _cacheMainTitle = mainDisplayTitle;
+    
+    String? overrideSubtitle;
+    if (articles.length == 1) {
+      if (widget.initialTitle != null && widget.initialTitle != mainDisplayTitle) {
+        overrideSubtitle = widget.initialTitle;
+      } else if (articles.first.title != mainDisplayTitle) {
+        overrideSubtitle = articles.first.title;
+      }
+    } else {
+      if (widget.initialTitle != null && widget.initialTitle != mainDisplayTitle) {
+        overrideSubtitle = widget.initialTitle;
+      }
+    }
+
+    // Flatten articles and their blocks for virtualized rendering
+    final List<dynamic> flattenedItems = [];
+    
+    // Header items
+    flattenedItems.add({'type': 'subtitle', 'data': overrideSubtitle ?? articles.first.subtitle});
+    if (articles.first.date != null) {
+      flattenedItems.add({'type': 'date', 'data': articles.first.date});
+    }
+    
+    // Note: topPadding is orientation-dependent, so we'll handle the spacer separately or just include a type
+    flattenedItems.add({'type': 'top_padding'});
+
+    for (var article in articles) {
+      if (article.title.isNotEmpty && article.title != mainDisplayTitle) {
+        flattenedItems.add({'type': 'section_title', 'data': article.title});
+      }
+      if (article.tags != null && article.tags!.isNotEmpty) {
+        flattenedItems.add({'type': 'tags', 'data': article.tags});
+      }
+      if (article.imageUrl != null) {
+        flattenedItems.add({'type': 'main_image', 'data': article.imageUrl});
+      }
+      if (article.summary != null && article.summary!.isNotEmpty) {
+        flattenedItems.add({'type': 'summary', 'data': article.summary});
+      }
+      
+      for (var block in article.content) {
+        flattenedItems.add({'type': 'block', 'data': block});
+      }
+      
+      flattenedItems.add({'type': 'separator'});
+    }
+
+    // Footer items
+    if (articles.last.source != null) {
+      flattenedItems.add({'type': 'footer_source', 'data': articles.last.source});
+    }
+    if (articles.last.sources != null && articles.last.sources!.isNotEmpty) {
+      for (var src in articles.last.sources!) {
+        flattenedItems.add({'type': 'footer_extra_source', 'data': src});
+      }
+    }
+    flattenedItems.add({'type': 'footer_swipe_hint'});
+    flattenedItems.add({'type': 'footer_end_line'});
+    flattenedItems.add({'type': 'bottom_spacer'});
+
+    _cacheFlattenedItems = flattenedItems;
   }
 
   void _handleNext() {
@@ -225,7 +309,6 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final backgroundColor = isDark ? AppTheme.backgroundDeep : Colors.white;
@@ -286,24 +369,14 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
           }
 
           final articles = snapshot.data!;
+          _updateCache(articles);
+
           final isPortrait = mediaQuery.orientation == Orientation.portrait;
           final double hPadding = isPortrait ? 16.0 : 24.0;
           final topPadding = isLandscape ? 12.0 : 20.0;
 
-          final mainDisplayTitle = _getBestTitle(widget.initialTitle, articles.first.title, articles.length > 1);
-          
-          String? overrideSubtitle;
-          if (articles.length == 1) {
-            if (widget.initialTitle != null && widget.initialTitle != mainDisplayTitle) {
-              overrideSubtitle = widget.initialTitle;
-            } else if (articles.first.title != mainDisplayTitle) {
-              overrideSubtitle = articles.first.title;
-            }
-          } else {
-            if (widget.initialTitle != null && widget.initialTitle != mainDisplayTitle) {
-              overrideSubtitle = widget.initialTitle;
-            }
-          }
+          final mainDisplayTitle = _cacheMainTitle!;
+          final flattenedItems = _cacheFlattenedItems!;
 
           return Scaffold(
             backgroundColor: backgroundColor,
@@ -311,98 +384,73 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
               onSelectionChanged: (content) => setState(() => _selectedContent = content),
               contextMenuBuilder: (context, selectableRegionState) => 
                   _buildContextMenu(context, selectableRegionState),
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (notification) {
-                  if (notification is ScrollUpdateNotification) {
-                    final metrics = notification.metrics;
-                    // In BouncingScrollPhysics, overscroll is reflected in the 'pixels' value
-                    final overscrollBottom = metrics.pixels - metrics.maxScrollExtent;
-                    final overscrollTop = -metrics.pixels;
+              child: VisibilityDetector(
+                key: Key('article-${widget.url}'),
+                onVisibilityChanged: (info) {
+                  if (info.visibleFraction <= 0) {
+                    // Page is offscreen, clear the heavy flattened cache to save RAM
+                    // It will be re-calculated automatically if the user scrolls back
+                    _cacheFlattenedItems = null;
+                    _cacheArticles = null;
+                  }
+                },
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification is ScrollUpdateNotification) {
+                      final metrics = notification.metrics;
+                      final overscrollBottom = metrics.pixels - metrics.maxScrollExtent;
+                      final overscrollTop = -metrics.pixels;
 
-                    if (overscrollBottom > 80) {
-                      _handleNext();
-                    } else if (overscrollTop > 80) {
-                      _handlePrevious();
-                    }
-                  } else if (notification is ScrollEndNotification) {
-                    final metrics = notification.metrics;
-                    // Flick detection as secondary trigger
-                    if (metrics.atEdge) {
-                      final velocity = notification.dragDetails?.primaryVelocity ?? 0;
-                      if (metrics.pixels >= metrics.maxScrollExtent && velocity < -500) {
+                      if (overscrollBottom > 80) {
                         _handleNext();
-                      } else if (metrics.pixels <= 0 && velocity > 500) {
+                      } else if (overscrollTop > 80) {
                         _handlePrevious();
                       }
+                    } else if (notification is ScrollEndNotification) {
+                      final metrics = notification.metrics;
+                      if (metrics.atEdge) {
+                        final velocity = notification.dragDetails?.primaryVelocity ?? 0;
+                        if (metrics.pixels >= metrics.maxScrollExtent && velocity < -500) {
+                          _handleNext();
+                        } else if (metrics.pixels <= 0 && velocity > 500) {
+                          _handlePrevious();
+                        }
+                      }
                     }
-                  }
-                  return false;
-                },
-                child: CustomScrollView(
-                  physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-                  slivers: [
-                    SliverPersistentHeader(
-                      pinned: true,
-                      delegate: _StickyTitleDelegate(
-                        title: mainDisplayTitle,
-                        isDark: isDark,
-                        isTablet: isTablet,
-                        backgroundColor: backgroundColor,
-                        padding: hPadding,
-                        topPadding: mediaQuery.padding.top,
-                      ),
-                    ),
-
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(hPadding, 4, hPadding, 0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (overrideSubtitle != null || articles.first.subtitle != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Text(
-                                  overrideSubtitle ?? articles.first.subtitle!,
-                                  textAlign: TextAlign.left,
-                                  style: TextStyle(
-                                    color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.7),
-                                    fontSize: isTablet ? 19 : 17,
-                                    fontWeight: FontWeight.w400,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ),
-                            if (articles.first.date != null)
-                              Text(
-                                articles.first.date!.toUpperCase(),
-                                textAlign: TextAlign.left,
-                                style: TextStyle(
-                                  color: isDark ? Colors.white38 : Colors.black38,
-                                  fontSize: isTablet ? 11 : 10,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
-                          ],
+                    return false;
+                  },
+                  child: CustomScrollView(
+                    physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                    slivers: [
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _StickyTitleDelegate(
+                          title: mainDisplayTitle,
+                          isDark: isDark,
+                          isTablet: isTablet,
+                          backgroundColor: backgroundColor,
+                          padding: hPadding,
+                          topPadding: mediaQuery.padding.top,
                         ),
                       ),
-                    ),
 
-                    SliverPadding(
-                      padding: EdgeInsets.fromLTRB(hPadding, topPadding, hPadding, 80),
-                      sliver: SliverToBoxAdapter(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ...articles.map((article) => _buildArticleSection(context, article, isDark, isTablet, articles)),
-                            const SizedBox(height: 60),
-                            _buildFooter(context, articles.last, isDark),
-                          ],
+                      SliverPadding(
+                        padding: EdgeInsets.symmetric(horizontal: hPadding),
+                        sliver: SliverList.builder(
+                          itemCount: flattenedItems.length,
+                          itemBuilder: (context, index) {
+                            final item = flattenedItems[index];
+                            if (item['type'] == 'top_padding') return SizedBox(height: topPadding);
+                            if (item['type'] == 'bottom_spacer') return const SizedBox(height: 40.0);
+                            return RepaintBoundary(
+                              child: _buildFlattenedItem(context, item, isDark, isTablet),
+                            );
+                          },
                         ),
                       ),
-                    ),
-                  ],
+                      const SliverToBoxAdapter(child: SizedBox(height: 80)),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -412,61 +460,85 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
     );
   }
 
-  Widget _buildArticleSection(BuildContext context, ArticleContent article, bool isDark, bool isTablet, List<ArticleContent> allArticles) {
-    final mainDisplayTitle = _getBestTitle(widget.initialTitle, allArticles.first.title, allArticles.length > 1);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (article.title.isNotEmpty && article.title != mainDisplayTitle)
-          Padding(
-            padding: const EdgeInsets.only(top: 40, bottom: 20),
-            child: Text(
-              article.title,
-              style: TextStyle(
-                color: isDark ? Colors.white : Colors.black,
-                fontSize: isTablet ? 22 : 20,
-                fontWeight: FontWeight.w900,
+  Widget _buildFlattenedItem(BuildContext context, Map<String, dynamic> item, bool isDark, bool isTablet) {
+    switch (item['type']) {
+      case 'subtitle':
+        final text = item['data'] as String?;
+        if (text == null) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 12),
+          child: Text(
+            text,
+            textAlign: TextAlign.left,
+            style: TextStyle(
+              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.7),
+              fontSize: isTablet ? 19 : 17,
+              fontWeight: FontWeight.w400,
+              height: 1.4,
+            ),
+          ),
+        );
+      case 'date':
+        final text = item['data'] as String;
+        return Text(
+          text.toUpperCase(),
+          textAlign: TextAlign.left,
+          style: TextStyle(
+            color: isDark ? Colors.white38 : Colors.black38,
+            fontSize: isTablet ? 11 : 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+          ),
+        );
+      case 'spacer':
+        return SizedBox(height: item['height']);
+      case 'section_title':
+        return Padding(
+          padding: const EdgeInsets.only(top: 40, bottom: 20),
+          child: Text(
+            item['data'],
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontSize: isTablet ? 22 : 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        );
+      case 'tags':
+        final tags = item['data'] as List<String>;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 20),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: tags.map<Widget>((tag) => ArticleTag(tag: tag)).toList(),
+          ),
+        );
+      case 'main_image':
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: CachedNetworkImage(
+              imageUrl: item['data'],
+              width: double.infinity,
+              fit: BoxFit.contain,
+              memCacheWidth: isTablet ? 1200 : 800,
+              placeholder: (context, url) => Container(
+                height: 200,
+                color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                child: const Center(child: CircularProgressIndicator(strokeWidth: 1)),
               ),
+              errorWidget: (context, url, error) => const SizedBox.shrink(),
             ),
           ),
-
-        if (article.tags != null && article.tags!.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 20),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: article.tags!.map<Widget>((tag) => ArticleTag(tag: tag)).toList(),
-            ),
-          ),
-        
-        if (article.imageUrl != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 24),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: CachedNetworkImage(
-                imageUrl: article.imageUrl!,
-                width: double.infinity,
-                fit: BoxFit.contain,
-                memCacheWidth: isTablet ? 1200 : 800,
-                placeholder: (context, url) => Container(
-                  height: 200,
-                  color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
-                  child: const Center(child: CircularProgressIndicator(strokeWidth: 1)),
-                ),
-                errorWidget: (context, url, error) => const SizedBox.shrink(),
-              ),
-            ),
-          ),
-
-        if (article.summary != null && article.summary!.isNotEmpty)
-          ArticleSummary(summary: article.summary!, isTablet: isTablet),
-
-        ...article.content.map((block) => _buildContentBlock(context, block, isTablet)),
-        
-        Padding(
+        );
+      case 'summary':
+        return ArticleSummary(summary: item['data'], isTablet: isTablet);
+      case 'block':
+        return _buildContentBlock(context, item['data'], isTablet);
+      case 'separator':
+        return Padding(
           padding: const EdgeInsets.symmetric(vertical: 40),
           child: Center(
             child: Container(
@@ -475,9 +547,78 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
               color: isDark ? Colors.white12 : Colors.black12,
             ),
           ),
-        ),
-      ],
-    );
+        );
+      case 'footer_source':
+        final source = item['data'];
+        return Center(
+          child: InkWell(
+            onTap: () => unawaited(_launchUrl(source.url)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20.0),
+              child: Text(
+                'VIEW ORIGINAL SOURCE',
+                style: TextStyle(
+                  color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2.5,
+                ),
+              ),
+            ),
+          ),
+        );
+      case 'footer_extra_source':
+        final url = item['data'] as String;
+        return Center(
+          child: InkWell(
+            onTap: () => unawaited(_launchUrl(url)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Text(
+                url.length > 40 ? '${url.substring(0, 40)}...' : url,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+          ),
+        );
+      case 'footer_swipe_hint':
+        return Padding(
+          padding: const EdgeInsets.only(top: 40, bottom: 40),
+          child: Column(
+            children: [
+              Icon(Icons.keyboard_double_arrow_up_rounded, 
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3), 
+                size: 20
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'SWIPE UP FOR NEXT',
+                style: TextStyle(
+                  color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.2),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2.0,
+                ),
+              ),
+            ],
+          ),
+        );
+      case 'footer_end_line':
+        return Center(
+          child: Container(
+            width: 40,
+            height: 1,
+            color: isDark ? Colors.white12 : Colors.black12,
+          ),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
   }
 
   Widget _buildContextMenu(BuildContext context, SelectableRegionState selectableRegionState) {
@@ -520,79 +661,6 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
     );
   }
 
-  Widget _buildFooter(BuildContext context, ArticleContent article, bool isDark) {
-    return Column(
-      children: [
-        if (article.source != null)
-          Center(
-            child: InkWell(
-              onTap: () => unawaited(_launchUrl(article.source!.url)),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 20.0),
-                child: Text(
-                  'VIEW ORIGINAL SOURCE',
-                  style: TextStyle(
-                    color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2.5,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        if (article.sources != null && article.sources!.isNotEmpty)
-          ...article.sources!.map((url) => Center(
-            child: InkWell(
-              onTap: () => unawaited(_launchUrl(url)),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Text(
-                  url.length > 40 ? '${url.substring(0, 40)}...' : url,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
-            ),
-          )),
-        const SizedBox(height: 40),
-        Center(
-          child: Column(
-            children: [
-              Icon(Icons.keyboard_double_arrow_up_rounded, 
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3), 
-                size: 20
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'SWIPE UP FOR NEXT',
-                style: TextStyle(
-                  color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.2),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 2.0,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 40),
-        Center(
-          child: Container(
-            width: 40,
-            height: 1,
-            color: isDark ? Colors.white12 : Colors.black12,
-          ),
-        ),
-        const SizedBox(height: 40),
-      ],
-    );
-  }
-
   void _handleSelectionAction(String type, String text) {
     String url = '';
     String title = '';
@@ -628,44 +696,7 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
         initialChildSize: 0.9,
         minChildSize: 0.5,
         maxChildSize: 0.95,
-        builder: (_, controller) => Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.2),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 20),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: SelectionWebView(url: url),
-              ),
-            ],
-          ),
-        ),
+        builder: (_, controller) => _BottomSheetWebView(url: url, title: title),
       ),
     ));
   }
@@ -799,8 +830,6 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
     }
   }
 
-
-
   String _getBestTitle(String? initial, String parsed, bool hasMultipleArticles) {
     if (hasMultipleArticles && initial != null && initial.isNotEmpty) {
       return initial;
@@ -823,7 +852,55 @@ class _ArticleContentViewState extends State<ArticleContentView> with AutomaticK
 
     return initial ?? parsed;
   }
+}
 
+class _BottomSheetWebView extends StatelessWidget {
+  final String url;
+  final String title;
+
+  const _BottomSheetWebView({required this.url, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.2),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SelectionWebView(url: url),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _StickyTitleDelegate extends SliverPersistentHeaderDelegate {
@@ -889,6 +966,13 @@ class SelectionWebView extends StatefulWidget {
 class _SelectionWebViewState extends State<SelectionWebView> {
   late final WebViewController _controller;
   bool _isLoading = true;
+
+  @override
+  void dispose() {
+    // Aggressively clear resources to release native memory
+    unawaited(_controller.loadRequest(Uri.parse('about:blank')));
+    super.dispose();
+  }
 
   @override
   void initState() {

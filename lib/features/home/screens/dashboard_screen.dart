@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_data.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
 import 'package:upsc_ca_ui/shared/models/article_model.dart';
@@ -31,14 +32,29 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   String? _userName;
   Quote? _quote;
+  final ScrollController _scrollController = ScrollController();
+  Widget? _cachedUI;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     unawaited(_loadPersonalization());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(context.read<DashboardProvider>().loadDashboardData());
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      context.read<DashboardProvider>().loadMoreMonths();
+    }
   }
 
   Future<void> _loadPersonalization() async {
@@ -58,8 +74,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<DashboardProvider>(
-      builder: (context, provider, child) {
+    return VisibilityDetector(
+      key: const Key('dashboard-screen'),
+      onVisibilityChanged: (info) {
+        final provider = context.read<DashboardProvider>();
+        if (info.visibleFraction <= 0) {
+          provider.setDashboardVisible(false);
+        } else {
+          provider.setDashboardVisible(true);
+        }
+      },
+      child: Consumer<DashboardProvider>(
+        builder: (context, provider, child) {
+        // Optimization: If dashboard is not visible, return the cached UI to avoid expensive list rebuilds
+        if (!provider.isDashboardVisible && _cachedUI != null) {
+          return _cachedUI!;
+        }
+
         // Handle Vajiram Login Required
         if (provider.needsVajiramLogin) {
           WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -70,7 +101,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             );
             if (cookies != null) {
               AppLogger.d('DEBUG: [Dashboard] Vajiram login successful, initiating retry sync...');
-              unawaited(provider.syncAllArticles(forceRefresh: true, isRetryAfterLogin: true));
+              unawaited(provider.syncAllArticles(forceRefresh: true, isRetryAfterLogin: true, onlyRecent: true));
             }
           });
         }
@@ -104,7 +135,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
 
         final data = provider.data!;
-        return GradientBackground(
+        final ui = GradientBackground(
           child: Column(
             children: [
               _buildTopBar(context, data.daysLeft),
@@ -116,6 +147,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1000),
                         child: CustomScrollView(
+                          controller: _scrollController,
                           physics: const BouncingScrollPhysics(),
                           slivers: isWide 
                               ? _buildWideSlivers(context, data, provider) 
@@ -129,7 +161,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
         );
+        _cachedUI = ui;
+        return ui;
       },
+    ),
     );
   }
 
@@ -213,7 +248,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       size: 20,
                       color: provider.isSyncing ? Colors.grey : primaryColor,
                     ),
-                    onPressed: provider.isSyncing ? null : () => unawaited(provider.syncAllArticles(forceRefresh: false)),
+                    onPressed: (provider.isSyncing || !provider.isDashboardVisible) 
+                        ? null 
+                        : () => unawaited(provider.syncAllArticles(forceRefresh: false, onlyRecent: true)),
                     tooltip: 'Sync Sources',
                   ),
                   const SizedBox(width: 4),
@@ -363,7 +400,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
             itemBuilder: (context, index) => TaskCard(task: visibleCompleted[index]),
           ),
         ),
-        if (provider.hasMoreCompletedTasks)
+        if (provider.isLoadingMore)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            ),
+          )
+        else if (provider.hasMoreCompletedTasks)
           SliverToBoxAdapter(
             child: Center(
               child: TextButton(
@@ -463,7 +507,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
             itemBuilder: (context, index) => TaskCard(task: visibleCompleted[index]),
           ),
         ),
-        if (provider.hasMoreCompletedTasks)
+        if (provider.isLoadingMore)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            ),
+          )
+        else if (provider.hasMoreCompletedTasks)
           SliverToBoxAdapter(
             child: Center(
               child: TextButton(

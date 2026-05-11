@@ -31,15 +31,15 @@ class DashboardRepository {
     _syncedService = SyncedDashboardService(_baseService);
   }
 
-  Future<DashboardData> getDashboardData({bool syncEnabled = true}) async {
+  Future<DashboardData> getDashboardData({bool syncEnabled = true, int? monthsBack}) async {
     if (syncEnabled) {
-      return _syncedService.fetchDashboardData();
+      return _syncedService.fetchDashboardData(monthsBack: monthsBack);
     } else {
       return _baseService.fetchDashboardData();
     }
   }
 
-  Future<void> syncAll(DateTime startDate, {bool forceRefresh = false, Function(String)? onStatusUpdate}) async {
+  Future<void> syncAll(DateTime startDate, {bool forceRefresh = false, bool onlyRecent = false, Function(String)? onStatusUpdate, bool Function()? shouldPause}) async {
     final List<BaseSyncService> services = [
       _vajiramSync,
       _visionSync,
@@ -55,7 +55,9 @@ class DashboardRepository {
         await service.syncRange(
           startDate: startDate,
           forceRefresh: forceRefresh,
+          onlyRecent: onlyRecent,
           onStatusUpdate: (status) => onStatusUpdate?.call("[${service.sourceName}] $status"),
+          shouldPause: shouldPause,
         );
       } catch (e) {
         if (service == _vajiramSync && e.toString().contains("LOGIN_REQUIRED")) {
