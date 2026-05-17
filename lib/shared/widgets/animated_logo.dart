@@ -98,31 +98,29 @@ class _AnimatedLogoState extends State<AnimatedLogo> with TickerProviderStateMix
                     ),
                   ],
                 ),
-                child: ClipOval(
-                  child: Stack(
-                    children: [
-                      // Glossy Highlight
-                      Positioned(
-                        top: 10,
-                        left: 15,
-                        child: Container(
-                          width: 40,
-                          height: 20,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            borderRadius: const BorderRadius.all(Radius.elliptical(40, 20)),
-                          ),
+                child: Stack(
+                  children: [
+                    // Glossy Highlight
+                    Positioned(
+                      top: 10,
+                      left: 15,
+                      child: Container(
+                        width: 40,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          borderRadius: const BorderRadius.all(Radius.elliptical(40, 20)),
                         ),
                       ),
-                      const Center(
-                        child: Icon(
-                          Icons.auto_stories,
-                          size: 45,
-                          color: Colors.white,
-                        ),
+                    ),
+                    const Center(
+                      child: Icon(
+                        Icons.auto_stories,
+                        size: 45,
+                        color: Colors.white,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),

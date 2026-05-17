@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,12 @@ import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
 import 'package:upsc_ca_ui/data/repositories/dashboard_repository.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 import 'package:upsc_ca_ui/core/utils/date_formatter.dart';
+import 'package:upsc_ca_ui/shared/models/repetition_task.dart';
+import 'package:upsc_ca_ui/data/sync/repetition_sync_service.dart';
+import 'package:upsc_ca_ui/data/sync/sync_manager.dart';
+import 'package:upsc_ca_ui/data/local/isar_service.dart';
+import 'package:upsc_ca_ui/data/local/models/local_content.dart';
+import 'package:upsc_ca_ui/core/config/app_constants.dart';
 
 import 'package:upsc_ca_ui/core/utils/task_categorizer.dart';
 
@@ -24,18 +31,43 @@ class DashboardProvider with ChangeNotifier {
   SharedPreferences? _prefs;
   bool _isDashboardVisible = true;
   bool _isReaderOpen = false;
-  int _monthsLoaded = 3;
   bool _isLoadingMore = false;
+  DateTime? _lastLoadMoreTime;
+  List<RepetitionTask> _repetitionTasks = [];
+  String? _lastFetchDate; // To track daily morning fetch
   
   // Pagination for completed tasks
   final int _completedTasksPageSize = 10;
   int _completedTasksCurrentCount = 10;
   
-  // Optimization: Cached flattened lists to avoid re-calculating on every build
-  List<Map<String, dynamic>>? _cachedFlattenedUnread;
-  List<Map<String, dynamic>>? _cachedFlattenedAll;
+  // Optimization: Pre-calculated data to avoid work in build()
+  List<Map<String, dynamic>> _cachedFlattenedUnread = [];
+  List<Map<String, dynamic>> _cachedFlattenedAll = [];
+  Map<String, dynamic>? _nextUnread;
+  Map<String, DashboardTask> _taskMap = {};
+  
+  // Category date lists for UI stability
+  List<String> _todayDateList = [];
+  List<String> _repetitionDateList = [];
+  List<String> _inProgressDateList = [];
+  List<String> _notStartedDateList = [];
+  List<String> _completedDateList = [];
   
   final DashboardRepository _repository = DashboardRepository();
+  final RepetitionSyncService _repetitionSync = RepetitionSyncService();
+
+  DashboardProvider() {
+    _listenToSyncEvents();
+  }
+
+  void _listenToSyncEvents() {
+    SyncManager().events.listen((event) {
+      if (event.type == SyncEventType.initialSyncComplete) {
+        AppLogger.d("DEBUG: Initial sync complete event received in DashboardProvider. Reloading data...");
+        unawaited(loadDashboardData());
+      }
+    });
+  }
 
   DashboardData? get data => _data;
   bool get isLoading => _isLoading;
@@ -47,6 +79,12 @@ class DashboardProvider with ChangeNotifier {
   bool get isDashboardVisible => _isDashboardVisible;
   bool get isReaderOpen => _isReaderOpen;
   bool get isLoadingMore => _isLoadingMore;
+
+  List<String> get todayDateList => _todayDateList;
+  List<String> get repetitionDateList => _repetitionDateList;
+  List<String> get inProgressDateList => _inProgressDateList;
+  List<String> get notStartedDateList => _notStartedDateList;
+  List<String> get completedDateList => _completedDateList;
 
   List<DashboardTask> get visibleCompletedTasks {
     if (_data == null) return [];
@@ -61,91 +99,110 @@ class DashboardProvider with ChangeNotifier {
   void loadMoreCompletedTasks() {
     if (hasMoreCompletedTasks) {
       _completedTasksCurrentCount += _completedTasksPageSize;
+      _completedDateList = visibleCompletedTasks.map((t) => t.date).toList();
       notifyListeners();
     }
   }
 
-  Map<String, dynamic>? get nextUnreadTaskAndArticle {
-    final flattened = allArticlesFlattened;
-    if (flattened.isEmpty) return null;
+  Map<String, dynamic>? get nextUnreadTaskAndArticle => _nextUnread;
 
-    // 1. Try to find the last viewed article if it's still uncompleted
-    if (_lastViewedUrl != null) {
-      try {
-        return flattened.firstWhere((item) => (item['article'] as ArticleModel).url == _lastViewedUrl);
-      } catch (_) {
-        // Not found or already completed, fall through
-      }
+  List<Map<String, dynamic>> get allArticlesFlattened => _cachedFlattenedUnread;
+
+  List<Map<String, dynamic>> get allArticlesFlattenedWithCompleted => _cachedFlattenedAll;
+
+  void _updateInternalStateFromData() {
+    if (_data == null) {
+      _clearDashboardData();
+      return;
     }
 
-    // 2. Otherwise, return the very first one in the sorted list (Latest unread)
-    return flattened.first;
-  }
+    // 1. Update Category Lists
+    _todayDateList = _data!.todayTasks.map((t) => t.date).toList();
+    _repetitionDateList = _data!.repetitionTasks.map((t) => t.date).toList();
+    _inProgressDateList = _data!.inProgressTasks.map((t) => t.date).toList();
+    _notStartedDateList = _data!.notStartedTasks.map((t) => t.date).toList();
+    _completedDateList = _data!.completedTasks.map((t) => t.date).toList();
 
-  List<Map<String, dynamic>> get allArticlesFlattened {
-    if (_data == null) return [];
-    if (_cachedFlattenedUnread != null) return _cachedFlattenedUnread!;
+    // 2. Update Task Map for O(1) lookups
+    final taskMap = <String, DashboardTask>{};
+    for (var task in _data!.allTasks) {
+      taskMap[task.date] = task;
+    }
+    _taskMap = taskMap;
 
-    final result = <Map<String, dynamic>>[];
-    
-    // 1. Collect ALL uncompleted tasks across ALL categories
-    final allUncompleted = _data!.allTasks.where((t) => !t.isFullyCompleted).toList();
-    
-    // 2. Sort tasks strictly by Date DESC (Latest First)
-    allUncompleted.sort((a, b) => b.isoDate.compareTo(a.isoDate));
-    
-    for (var task in allUncompleted) {
-      // 3. Filter only uncompleted articles
-      final uncompletedArticles = task.articles.where((a) => !a.isCompleted).toList();
-      if (uncompletedArticles.isEmpty) continue;
+    // 3. Update flattened lists (If not already updated by isolate)
+    // This part is a fallback for optimistic updates
+    if (_cachedFlattenedUnread.isEmpty && _data!.allTasks.isNotEmpty) {
+      _recalculateFlattenedLists();
+    }
 
-      // 4. Sort articles within the same task by source priority
-      uncompletedArticles.sort((a, b) => _compareSources(a.source, b.source));
-
-      for (var article in uncompletedArticles) {
-        result.add({
-          'task': task,
-          'article': article,
-        });
+    // 4. Calculate next unread
+    if (_cachedFlattenedUnread.isEmpty) {
+      _nextUnread = null;
+    } else {
+      if (_lastViewedUrl != null) {
+        try {
+          _nextUnread = _cachedFlattenedUnread.firstWhere((item) => (item['article'] as ArticleModel).url == _lastViewedUrl);
+        } catch (_) {
+          _nextUnread = _cachedFlattenedUnread.first;
+        }
+      } else {
+        _nextUnread = _cachedFlattenedUnread.first;
       }
     }
-    _cachedFlattenedUnread = result;
-    return result;
   }
 
-  List<Map<String, dynamic>> get allArticlesFlattenedWithCompleted {
-    if (_data == null) return [];
-    if (_cachedFlattenedAll != null) return _cachedFlattenedAll!;
-
-    final result = <Map<String, dynamic>>[];
+  void _recalculateFlattenedLists() {
+    if (_data == null) return;
     
-    // 1. Collect ALL tasks
-    final allTasks = _data!.allTasks.toList();
+    final unread = <Map<String, dynamic>>[];
+    final all = <Map<String, dynamic>>[];
     
-    // 2. Sort tasks strictly by Date DESC (Latest First)
-    allTasks.sort((a, b) => b.isoDate.compareTo(a.isoDate));
-    
-    for (var task in allTasks) {
+    for (var task in _data!.allTasks) {
       final articles = List<ArticleModel>.from(task.articles);
-      if (articles.isEmpty) continue;
-
-      // 3. Sort articles within the same task by source priority
-      articles.sort((a, b) => _compareSources(a.source, b.source));
-
-      for (var article in articles) {
-        result.add({
-          'task': task,
-          'article': article,
-        });
+      if (articles.isNotEmpty) {
+        articles.sort((a, b) => _compareSources(a.source, b.source));
+        for (var article in articles) {
+          final item = {'task': task, 'article': article};
+          all.add(item);
+          if (!article.isCompleted) {
+            unread.add(item);
+          }
+        }
       }
     }
-    _cachedFlattenedAll = result;
-    return result;
+    _cachedFlattenedUnread = unread;
+    _cachedFlattenedAll = all;
   }
 
-  void _invalidateCaches() {
-    _cachedFlattenedUnread = null;
-    _cachedFlattenedAll = null;
+  void _calculateFlattenedData(Map<String, dynamic> result) {
+    _data = result['data'] as DashboardData;
+    
+    // Merge with our local repetitions
+    if (_data != null) {
+      _data = TaskCategorizer.categorize(
+        allTasks: _data!.allTasks,
+        daysLeft: _data!.daysLeft,
+        repetitions: _repetitionTasks,
+      );
+    }
+
+    _recalculateFlattenedLists();
+    
+    _updateInternalStateFromData();
+  }
+
+  void _clearDashboardData() {
+    _data = null;
+    _cachedFlattenedUnread = [];
+    _cachedFlattenedAll = [];
+    _nextUnread = null;
+    _taskMap = {};
+    _todayDateList = [];
+    _repetitionDateList = [];
+    _inProgressDateList = [];
+    _notStartedDateList = [];
+    _completedDateList = [];
   }
 
   Future<void> setLastViewedUrl(String url) async {
@@ -157,9 +214,10 @@ class DashboardProvider with ChangeNotifier {
   }
 
   Future<void> _loadLastViewedUrl() async {
+    if (_prefs != null && _lastViewedUrl != null) return;
     _prefs ??= await SharedPreferences.getInstance();
     _lastViewedUrl = _prefs?.getString('last_viewed_url');
-    notifyListeners();
+    // Don't notify here if it's called during loading
   }
 
   int _compareSources(String? s1, String? s2) {
@@ -181,6 +239,7 @@ class DashboardProvider with ChangeNotifier {
   }
 
   void setNeedsVajiramLogin(bool value) {
+    if (_needsVajiramLogin == value) return;
     _needsVajiramLogin = value;
     notifyListeners();
   }
@@ -219,35 +278,29 @@ class DashboardProvider with ChangeNotifier {
     return false;
   }
 
+  DashboardTask? getTaskByDate(String date) => _taskMap[date];
+
   double getTaskProgress(String date) {
-    if (_data == null) return 0;
-    try {
-      final task = _data!.allTasks.firstWhere((t) => t.date == date);
-      final total = task.totalArticles + task.totalQuizzes;
-      if (total == 0) return 0;
-      return (task.articlesDone + task.quizzesDone) / total;
-    } catch (_) {
-      return 0;
-    }
+    final task = _taskMap[date];
+    if (task == null) return 0;
+    final total = task.totalArticles + task.totalQuizzes;
+    if (total == 0) return 0;
+    return (task.articlesDone + task.quizzesDone) / total;
   }
 
   Map<String, int> getTaskStats(String date) {
-    if (_data == null) return {'articlesDone': 0, 'totalArticles': 0, 'quizzesDone': 0, 'totalQuizzes': 0};
-    try {
-      final task = _data!.allTasks.firstWhere((t) => t.date == date);
-      return {
-        'articlesDone': task.articlesDone,
-        'totalArticles': task.totalArticles,
-        'quizzesDone': task.quizzesDone,
-        'totalQuizzes': task.totalQuizzes,
-      };
-    } catch (_) {
-      return {'articlesDone': 0, 'totalArticles': 0, 'quizzesDone': 0, 'totalQuizzes': 0};
-    }
+    final task = _taskMap[date];
+    if (task == null) return {'articlesDone': 0, 'totalArticles': 0, 'quizzesDone': 0, 'totalQuizzes': 0};
+    return {
+      'articlesDone': task.articlesDone,
+      'totalArticles': task.totalArticles,
+      'quizzesDone': task.quizzesDone,
+      'totalQuizzes': task.totalQuizzes,
+    };
   }
 
   /// Syncs all configured article sources.
-  Future<void> syncAllArticles({bool forceRefresh = false, bool isRetryAfterLogin = false, bool onlyRecent = false}) async {
+  Future<void> syncAllArticles({bool forceRefresh = false, bool isRetryAfterLogin = false, bool onlyRecent = true}) async {
     if (_isReaderOpen) {
       AppLogger.d('DEBUG: [DashboardProvider] Reader is open, skipping background sync');
       return;
@@ -261,13 +314,21 @@ class DashboardProvider with ChangeNotifier {
       final profile = await ProfileService().getProfile();
       if (profile != null) {
         try {
-          await _repository.syncAll(
+          if (forceRefresh) {
+            // Full refresh should definitely pull latest repetitions
+            await _repetitionSync.downloadAll();
+            _lastFetchDate = DateFormatter.toIso(DateTime.now());
+          }
+          
+          // Use coordinatedSync for manual triggers to ensure strict sequence and metadata updates
+          await _repository.coordinatedSync(
             profile.startDate,
             forceRefresh: forceRefresh,
-            onlyRecent: onlyRecent,
             onStatusUpdate: (status) {
-              _syncStatus = status;
-              notifyListeners();
+              if (_syncStatus != status) {
+                _syncStatus = status;
+                notifyListeners();
+              }
             },
             shouldPause: () => _isReaderOpen,
           );
@@ -285,9 +346,11 @@ class DashboardProvider with ChangeNotifier {
         await loadDashboardData();
       } else {
         _error = "Profile not found. Please setup profile first.";
+        notifyListeners();
       }
     } catch (e) {
       _error = "Sync failed: $e";
+      notifyListeners();
     } finally {
       _isSyncing = false;
       _syncStatus = null;
@@ -295,17 +358,37 @@ class DashboardProvider with ChangeNotifier {
     }
   }
 
-  /// Fetches dashboard data using the repository.
+  /// Fetches dashboard data.
   Future<void> loadDashboardData() async {
     _isLoading = true;
     _error = null;
-    _monthsLoaded = 3; // Reset to default on full reload
-    _invalidateCaches();
     notifyListeners();
 
     try {
       await _loadLastViewedUrl();
-      _data = await _repository.getDashboardData(monthsBack: _monthsLoaded);
+      
+      final todayStr = DateFormatter.toIso(DateTime.now());
+      
+      // Step: Check if we have any data at all. If not, we wait for initial sync.
+      final localCount = await IsarService.isar.localContents.count();
+      if (localCount == 0) {
+        AppLogger.d("Dashboard loading: No local data found. Showing skeleton until initial sync...");
+        // Keep _isLoading = true and return. NotifyListeners was called at start of method.
+        return;
+      }
+
+      // Step 3: Morning fetch when the app opens
+      if (_lastFetchDate != todayStr) {
+        AppLogger.d("New day detected. Performing morning fetch for due repetitions...");
+        await _repetitionSync.downloadAll();
+        _lastFetchDate = todayStr;
+      }
+
+      _repetitionTasks = await _repetitionSync.getAllRepetitions();
+      final result = await _repository.getDashboardData();
+      _calculateFlattenedData(result);
+
+      // We removed the automatic coordinatedSync from here to only trigger it on manual sync.
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -315,26 +398,7 @@ class DashboardProvider with ChangeNotifier {
   }
 
   Future<void> loadMoreMonths() async {
-    if (_isLoadingMore || _data == null) return;
-    
-    _isLoadingMore = true;
-    notifyListeners();
-
-    try {
-      _monthsLoaded += 3;
-      final newData = await _repository.getDashboardData(monthsBack: _monthsLoaded);
-      
-      // Since fetchDashboardData currently returns a full set for the window,
-      // we can just replace the data. 
-      // Optimization: In a more complex app, we'd only fetch the NEW months and merge.
-      _data = newData;
-      _invalidateCaches();
-    } catch (e) {
-      AppLogger.e("Failed to load more history", e);
-    } finally {
-      _isLoadingMore = false;
-      notifyListeners();
-    }
+    loadMoreCompletedTasks();
   }
 
   /// Adds a custom task and reloads
@@ -369,13 +433,23 @@ class DashboardProvider with ChangeNotifier {
       if (profile != null) {
         final updatedProfile = ProfileData(
           name: profile.name,
+          joinedAt: profile.joinedAt,
           startDate: profile.startDate,
           articleSources: profile.articleSources,
           quizSources: profile.quizSources,
-          repetitionDays: profile.repetitionDays,
-          availableDays: profile.availableDays,
+          repetitionIntervals: profile.repetitionIntervals,
           themeColorValue: profile.themeColorValue,
           examDate: date,
+          isPremium: profile.isPremium,
+          trialStartDate: profile.trialStartDate,
+          trialEndDate: profile.trialEndDate,
+          subscriptionPlan: profile.subscriptionPlan,
+          subscriptionStartDate: profile.subscriptionStartDate,
+          subscriptionEndDate: profile.subscriptionEndDate,
+          manualPremium: profile.manualPremium,
+          manualPremiumReason: profile.manualPremiumReason,
+          purchasePlatform: profile.purchasePlatform,
+          lastValidationAt: profile.lastValidationAt,
         );
         
         await ProfileService().saveProfileToCloud(user.uid, updatedProfile);
@@ -408,24 +482,40 @@ class DashboardProvider with ChangeNotifier {
         articlesDone: articlesDone,
       );
 
-      // Final categorization logic unified
       final allTasks = _data!.allTasks.map((t) => t.date == task.date ? updatedTask : t).toList();
-      _data = TaskCategorizer.categorize(allTasks: allTasks, daysLeft: _data!.daysLeft);
-      _invalidateCaches();
+      _data = TaskCategorizer.categorize(
+        allTasks: allTasks, 
+        daysLeft: _data!.daysLeft,
+        repetitions: _repetitionTasks,
+      );
+      _recalculateFlattenedLists();
+      _updateInternalStateFromData();
       
       notifyListeners();
+
+      // Check for day completion
+      if (updatedTask.isFullyCompleted) {
+        await _recordRepetitionCompletion(task);
+      }
     }
 
     // 2. Sync to Firestore in the background
-    final targetService = _repository.getSyncServiceForSource(article.source, isCustom: article.isCustom);
+    final isoDate = DateFormatter.toIso(DateFormatter.parseAny(task.date));
+    final dateObj = DateTime.parse(isoDate);
+    final year = dateObj.year.toString();
+    final monthId = "${dateObj.year}_${dateObj.month.toString().padLeft(2, '0')}";
+    final articleId = article.url?.hashCode.toString() ?? article.title.hashCode.toString();
 
-    if (targetService != null) {
-      final isoDate = DateFormatter.toIso(DateFormatter.parseAny(task.date));
-      try {
-        await targetService.updateArticleStatus(isoDate, article.url!, true, completedAt: completedAt);
-      } catch (e) {
-        AppLogger.e('[DashboardProvider] Firestore sync failed', e);
-      }
+    try {
+      await _repository.markArticleCompleted(
+        article.source ?? "unknown",
+        year,
+        monthId,
+        isoDate,
+        articleId,
+      );
+    } catch (e) {
+      AppLogger.e('[DashboardProvider] local save failed', e);
     }
   }
 
@@ -452,21 +542,122 @@ class DashboardProvider with ChangeNotifier {
       );
 
       final allTasks = _data!.allTasks.map((t) => t.date == task.date ? updatedTask : t).toList();
-      _data = TaskCategorizer.categorize(allTasks: allTasks, daysLeft: _data!.daysLeft);
+      _data = TaskCategorizer.categorize(
+        allTasks: allTasks, 
+        daysLeft: _data!.daysLeft,
+        repetitions: _repetitionTasks,
+      );
+      _recalculateFlattenedLists();
+      _updateInternalStateFromData();
       
       notifyListeners();
+
+      // Check for day completion
+      if (updatedTask.isFullyCompleted) {
+        await _recordRepetitionCompletion(task);
+      }
     }
 
     // 2. Sync to Firestore in the background
-    final targetService = _repository.getSyncServiceForSource(quiz.source);
+    final isoDate = DateFormatter.toIso(DateFormatter.parseAny(task.date));
+    final dateObj = DateTime.parse(isoDate);
+    final year = dateObj.year.toString();
+    final monthId = "${dateObj.year}_${dateObj.month.toString().padLeft(2, '0')}";
+    final quizId = quiz.title.hashCode.toString();
 
-    if (targetService != null) {
-      final isoDate = DateFormatter.toIso(DateFormatter.parseAny(task.date));
-      try {
-        await targetService.updateQuizStatus(isoDate, quiz.title, true, completedAt: completedAt);
-      } catch (e) {
-        AppLogger.e('[DashboardProvider] Firestore sync failed for quiz', e);
-      }
+    try {
+      await _repository.markQuizCompleted(
+        quiz.source,
+        year,
+        monthId,
+        isoDate,
+        quizId,
+      );
+    } catch (e) {
+      AppLogger.e('[DashboardProvider] local save failed for quiz', e);
     }
+  }
+
+  Future<void> _recordRepetitionCompletion(DashboardTask task) async {
+    final String contentDate = DateFormatter.toIso(task.isoDate);
+    final String today = DateFormatter.toIso(DateTime.now());
+
+    // 1. Get current repetition record if exists
+    RepetitionTask? existing = await _repetitionSync.getRepetition(contentDate);
+    
+    final profile = await ProfileService().getProfile();
+    final List<int> intervals = profile?.repetitionIntervals ?? AppConstants.defaultRepetitionDays;
+
+    if (existing == null) {
+      // Step 2: Save the completed day for the first time
+      final int firstInterval = intervals.isNotEmpty ? intervals[0] : 1;
+      final String nextDue = DateFormatter.toIso(DateTime.now().add(Duration(days: firstInterval)));
+
+      final newRep = RepetitionTask(
+        contentDate: contentDate,
+        firstCompletedDate: today,
+        currentRepetition: 1,
+        nextDueDate: nextDue,
+        history: [],
+      );
+
+      await _repetitionSync.saveRepetition(newRep);
+      _repetitionTasks.add(newRep);
+      AppLogger.d("First completion recorded for $contentDate. Next due: $nextDue");
+    } else {
+      // Step 7: Update Firestore after a repetition is completed
+      if (existing.isFullyCompleted) return;
+
+      final int nextRepNumber = existing.currentRepetition + 1;
+      final int intervalIndex = nextRepNumber - 1;
+
+      String? nextDue;
+      bool isFullyCompleted = false;
+
+      if (intervalIndex < intervals.length) {
+        nextDue = DateFormatter.toIso(DateTime.now().add(Duration(days: intervals[intervalIndex])));
+      } else {
+        isFullyCompleted = true;
+      }
+
+      final updatedHistory = List<RepetitionHistory>.from(existing.history)
+        ..add(RepetitionHistory(
+          repNumber: existing.currentRepetition,
+          scheduledDate: existing.nextDueDate ?? today,
+          completedDate: today,
+        ));
+
+      final updatedRep = existing.copyWith(
+        currentRepetition: nextRepNumber,
+        nextDueDate: nextDue,
+        history: updatedHistory,
+        isFullyCompleted: isFullyCompleted,
+      );
+
+      await _repetitionSync.saveRepetition(updatedRep);
+      
+      // Update local state immediately
+      final idx = _repetitionTasks.indexWhere((r) => r.contentDate == contentDate);
+      if (idx != -1) {
+        _repetitionTasks[idx] = updatedRep;
+      }
+
+      AppLogger.d("Repetition ${existing.currentRepetition} completed for $contentDate. Next due: $nextDue");
+    }
+
+    // Re-run categorization to reflect UI changes (moving out of repetition section)
+    if (_data != null) {
+      _data = TaskCategorizer.categorize(
+        allTasks: _data!.allTasks, 
+        daysLeft: _data!.daysLeft,
+        repetitions: _repetitionTasks,
+      );
+      _updateInternalStateFromData();
+    }
+    
+    notifyListeners();
+    
+    // Trigger sync
+    unawaited(_repetitionSync.sync(contentDate));
   }
 }

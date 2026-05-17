@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:upsc_ca_ui/shared/widgets/gradient_background.dart';
 import 'package:upsc_ca_ui/shared/widgets/glass_card.dart';
 import 'package:upsc_ca_ui/shared/widgets/animated_logo.dart';
 import 'package:upsc_ca_ui/shared/widgets/google_sign_in_button.dart';
@@ -53,8 +52,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return GradientBackground(
-      child: LayoutBuilder(
+    return Scaffold(
+      body: LayoutBuilder(
         builder: (context, constraints) {
           final isLandscape = constraints.maxWidth > constraints.maxHeight;
           final isTablet = constraints.maxWidth >= 600;
@@ -127,7 +126,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     Text(
                       'Read today.\nRecall tomorrow.',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Colors.white70,
                         fontSize: 22,
                       ),
                     ),
@@ -195,9 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
       Text(
         'Read today. Recall tomorrow.',
         textAlign: textAlign,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-          color: Colors.white70,
-        ),
+        style: Theme.of(context).textTheme.bodyLarge,
       ),
       const SizedBox(height: 64),
       GoogleSignInButton(

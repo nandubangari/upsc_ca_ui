@@ -89,6 +89,7 @@ class VisionStudyService {
           title: title,
           url: fullUrl,
           date: isoDate,
+          source: 'visionias',
           subtitle: 'VisionIAS Daily Summary',
         ));
       }
@@ -106,7 +107,7 @@ class VisionStudyService {
     
     return [
       QuizModel(
-        source: 'VisionIAS',
+        source: 'visionias',
         title: 'Daily Prelim Quiz ($formattedTitleDate)',
         url: url,
         isCompleted: false,

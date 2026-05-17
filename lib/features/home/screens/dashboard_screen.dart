@@ -3,13 +3,9 @@ import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:visibility_detector/visibility_detector.dart';
-import 'package:upsc_ca_ui/shared/models/dashboard_data.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
 import 'package:upsc_ca_ui/shared/models/article_model.dart';
-import 'package:upsc_ca_ui/shared/widgets/gradient_background.dart';
-
-
-
+import 'package:upsc_ca_ui/shared/widgets/shimmer_task_card.dart';
 
 import 'package:upsc_ca_ui/shared/widgets/section_header.dart';
 import 'package:upsc_ca_ui/shared/widgets/task_card.dart';
@@ -21,6 +17,10 @@ import 'package:upsc_ca_ui/data/services/quote_service.dart';
 import 'package:upsc_ca_ui/features/reader/screens/article_reader_screen.dart';
 import 'package:upsc_ca_ui/features/profile/screens/profile_setup_screen.dart';
 import 'package:upsc_ca_ui/features/auth/screens/vajiram_login_screen.dart';
+import 'package:upsc_ca_ui/features/subscription/screens/subscription_screen.dart';
+import 'package:upsc_ca_ui/providers/subscription_provider.dart';
+import 'package:upsc_ca_ui/data/services/subscription_service.dart';
+import 'package:upsc_ca_ui/core/utils/link_launcher_utils.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -29,18 +29,22 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAliveClientMixin {
   String? _userName;
   Quote? _quote;
   final ScrollController _scrollController = ScrollController();
   Widget? _cachedUI;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScroll);
-    unawaited(_loadPersonalization());
+    
+    // Defer heavy data loading until after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadPersonalization());
       unawaited(context.read<DashboardProvider>().loadDashboardData());
     });
   }
@@ -49,12 +53,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
-      context.read<DashboardProvider>().loadMoreMonths();
-    }
   }
 
   Future<void> _loadPersonalization() async {
@@ -74,105 +72,144 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required by AutomaticKeepAliveClientMixin
+    
     return VisibilityDetector(
       key: const Key('dashboard-screen'),
       onVisibilityChanged: (info) {
         final provider = context.read<DashboardProvider>();
-        if (info.visibleFraction <= 0) {
-          provider.setDashboardVisible(false);
-        } else {
-          provider.setDashboardVisible(true);
-        }
+        provider.setDashboardVisible(info.visibleFraction > 0);
       },
-      child: Consumer<DashboardProvider>(
-        builder: (context, provider, child) {
-        // Optimization: If dashboard is not visible, return the cached UI to avoid expensive list rebuilds
-        if (!provider.isDashboardVisible && _cachedUI != null) {
-          return _cachedUI!;
-        }
+      child: Selector<DashboardProvider, bool>(
+        selector: (_, p) => p.isDashboardVisible,
+        builder: (context, isVisible, _) {
+          // 1. Optimization: Return cached UI if dashboard is not visible
+          if (!isVisible && _cachedUI != null) return _cachedUI!;
 
-        // Handle Vajiram Login Required
-        if (provider.needsVajiramLogin) {
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            provider.setNeedsVajiramLogin(false); // Reset to avoid loop
-            final cookies = await Navigator.push<String>(
-              context,
-              MaterialPageRoute(builder: (context) => const VajiramLoginScreen()),
-            );
-            if (cookies != null) {
-              AppLogger.d('DEBUG: [Dashboard] Vajiram login successful, initiating retry sync...');
-              unawaited(provider.syncAllArticles(forceRefresh: true, isRetryAfterLogin: true, onlyRecent: true));
-            }
-          });
-        }
+          // 2. Main Content and Login Side Effects
+          return Selector<DashboardProvider, (bool, String?, bool, int, bool)>(
+            selector: (_, p) => (p.isLoading, p.error, p.data != null, p.data?.daysLeft ?? 0, p.needsVajiramLogin),
+            builder: (context, state, _) {
+              final (isLoading, error, hasData, daysLeft, needsLogin) = state;
 
-        if (provider.isLoading) {
-          return Scaffold(
-            body: Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary)),
-          );
-        } else if (provider.error != null) {
-          final isDark = Theme.of(context).brightness == Brightness.dark;
-          return Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('Error: ${provider.error}', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => unawaited(provider.loadDashboardData()),
-                    child: const Text('Retry'),
+              // Handle Vajiram Login Side Effect
+              if (needsLogin) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  final provider = context.read<DashboardProvider>();
+                  provider.setNeedsVajiramLogin(false); // Reset to avoid loop
+                  final cookies = await Navigator.push<String>(
+                    context,
+                    MaterialPageRoute(builder: (context) => const VajiramLoginScreen()),
+                  );
+                  if (cookies != null) {
+                    AppLogger.d('DEBUG: [Dashboard] Vajiram login successful, initiating retry sync...');
+                    unawaited(provider.syncAllArticles(forceRefresh: true, isRetryAfterLogin: true, onlyRecent: false));
+                  }
+                });
+              }
+
+              if (isLoading) {
+                return _buildLoadingSkeleton(context, daysLeft);
+              } else if (error != null) {
+                final isDark = Theme.of(context).brightness == Brightness.dark;
+                return Scaffold(
+                  body: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Error: $error', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: () => unawaited(context.read<DashboardProvider>().loadDashboardData()),
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+                );
+              } else if (!hasData) {
+                final isDark = Theme.of(context).brightness == Brightness.dark;
+                return Scaffold(
+                  body: Center(child: Text('No data found', style: TextStyle(color: isDark ? Colors.white : Colors.black87))),
+                );
+              }
+
+              final ui = Scaffold(
+                body: Column(
+                  children: [
+                    _buildTopBar(context, daysLeft),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isWide = constraints.maxWidth >= 700;
+                          return Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 1000),
+                              child: NotificationListener<ScrollNotification>(
+                                onNotification: (notification) {
+                                  if (notification is ScrollUpdateNotification) {
+                                    if (notification.metrics.pixels >= notification.metrics.maxScrollExtent - 200) {
+                                      context.read<DashboardProvider>().loadMoreMonths();
+                                    }
+                                  }
+                                  return false;
+                                },
+                                child: CustomScrollView(
+                                  controller: _scrollController,
+                                  physics: const BouncingScrollPhysics(),
+                                  slivers: isWide 
+                                      ? _buildWideSlivers(context, context.read<DashboardProvider>()) 
+                                      : _buildNarrowSlivers(context, context.read<DashboardProvider>()),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              );
+              _cachedUI = ui;
+              return ui;
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildLoadingSkeleton(BuildContext context, int daysLeft) {
+    return Scaffold(
+      body: Column(
+        children: [
+          _buildTopBar(context, daysLeft),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: ListView.builder(
+                itemCount: 10,
+                physics: const NeverScrollableScrollPhysics(),
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return const Padding(
+                      padding: EdgeInsets.only(top: 8, bottom: 12),
+                      child: SectionHeader(title: 'LOADING YOUR TASKS...', isLarge: true),
+                    );
+                  }
+                  return const ShimmerTaskCard();
+                },
               ),
             ),
-          );
-        } else if (provider.data == null) {
-          final isDark = Theme.of(context).brightness == Brightness.dark;
-          return Scaffold(
-            body: Center(child: Text('No data found', style: TextStyle(color: isDark ? Colors.white : Colors.black87))),
-          );
-        }
-
-        final data = provider.data!;
-        final ui = GradientBackground(
-          child: Column(
-            children: [
-              _buildTopBar(context, data.daysLeft),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide = constraints.maxWidth >= 700;
-                    return Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 1000),
-                        child: CustomScrollView(
-                          controller: _scrollController,
-                          physics: const BouncingScrollPhysics(),
-                          slivers: isWide 
-                              ? _buildWideSlivers(context, data, provider) 
-                              : _buildNarrowSlivers(context, data, provider),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
           ),
-        );
-        _cachedUI = ui;
-        return ui;
-      },
-    ),
+        ],
+      ),
     );
   }
 
   Widget _buildTopBar(BuildContext context, int daysLeft) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).colorScheme.primary;
-    final user = AuthRepository().currentUser;
-    final provider = context.watch<DashboardProvider>();
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -198,11 +235,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           shape: BoxShape.circle,
                           border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 1),
                         ),
-                        child: CircleAvatar(
-                          radius: 18,
-                          backgroundImage: user?.photoURL != null 
-                              ? NetworkImage(user!.photoURL!)
-                              : const NetworkImage('https://api.dicebear.com/7.x/avataaars/png?seed=Nandhu'),
+                        child: Selector<AuthRepository, String?>(
+                          selector: (_, r) => r.currentUser?.photoURL,
+                          builder: (context, photoURL, _) {
+                            return Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                image: DecorationImage(
+                                  image: photoURL != null 
+                                      ? ResizeImage.resizeIfNeeded(108, null, NetworkImage(photoURL))
+                                      : ResizeImage.resizeIfNeeded(108, null, const NetworkImage('https://api.dicebear.com/7.x/avataaars/png?seed=Nandhu')),
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              // Optimized for GPU texture cache
+                              clipBehavior: Clip.none,
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -242,20 +293,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(width: 8),
               Row(
                 children: [
-                  IconButton(
-                    icon: Icon(
-                      provider.isSyncing ? Icons.sync_disabled : Icons.sync,
-                      size: 20,
-                      color: provider.isSyncing ? Colors.grey : primaryColor,
-                    ),
-                    onPressed: (provider.isSyncing || !provider.isDashboardVisible) 
-                        ? null 
-                        : () => unawaited(provider.syncAllArticles(forceRefresh: false, onlyRecent: true)),
-                    tooltip: 'Sync Sources',
+                  Selector<DashboardProvider, (bool, bool)>(
+                    selector: (_, p) => (p.isSyncing, p.isDashboardVisible),
+                    builder: (context, state, _) {
+                      final (isSyncing, isVisible) = state;
+                      return IconButton(
+                        icon: Icon(
+                          isSyncing ? Icons.sync_disabled : Icons.sync,
+                          size: 20,
+                          color: isSyncing ? Colors.grey : primaryColor,
+                        ),
+                        onPressed: (isSyncing || !isVisible) 
+                            ? null 
+                            : () => unawaited(context.read<DashboardProvider>().syncAllArticles(forceRefresh: false, onlyRecent: true)),
+                        tooltip: 'Sync Sources',
+                      );
+                    },
                   ),
                   const SizedBox(width: 4),
                   GestureDetector(
-                    onTap: () => _showExamDatePicker(context, provider),
+                    onTap: () => _showExamDatePicker(context, context.read<DashboardProvider>()),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
@@ -284,25 +341,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-          if (provider.isSyncing && provider.syncStatus != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: primaryColor),
+          Selector<DashboardProvider, (bool, String?)>(
+            selector: (_, p) => (p.isSyncing, p.syncStatus),
+            builder: (context, state, _) {
+              final (isSyncing, syncStatus) = state;
+              if (isSyncing && syncStatus != null) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const RepaintBoundary(
+                        child: SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        syncStatus,
+                        style: TextStyle(fontSize: 10, color: isDark ? Colors.white54 : Colors.black54),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    provider.syncStatus!,
-                    style: TextStyle(fontSize: 10, color: isDark ? Colors.white54 : Colors.black54),
-                  ),
-                ],
-              ),
-            ),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
         ],
       ),
     );
@@ -330,200 +397,477 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  List<Widget> _buildNarrowSlivers(BuildContext context, DashboardData data, DashboardProvider provider) {
-    final nextUnread = provider.nextUnreadTaskAndArticle;
-    final visibleCompleted = provider.visibleCompletedTasks;
-
+  List<Widget> _buildNarrowSlivers(BuildContext context, DashboardProvider provider) {
     return [
-      if (nextUnread != null)
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          sliver: SliverToBoxAdapter(
-            child: _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
-          ),
-        ),
+      Selector<DashboardProvider, Map<String, dynamic>?>(
+        selector: (_, p) => p.nextUnreadTaskAndArticle,
+        builder: (context, nextUnread, _) {
+          if (nextUnread == null) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            sliver: SliverToBoxAdapter(
+              child: _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
+            ),
+          );
+        },
+      ),
       
-      if (data.inProgressTasks.isNotEmpty) ...[
-        const SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'In Progress', isLarge: true)),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          sliver: SliverList.builder(
-            itemCount: data.inProgressTasks.length,
-            itemBuilder: (context, index) => TaskCard(task: data.inProgressTasks[index]),
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 16)),
-      ],
-
-      if (data.todayTasks.isNotEmpty) ...[
-        const SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Today\'s Tasks', isLarge: true)),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          sliver: SliverList.builder(
-            itemCount: data.todayTasks.length,
-            itemBuilder: (context, index) => TaskCard(task: data.todayTasks[index]),
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 16)),
-      ],
-
-      if (data.notStartedTasks.isNotEmpty) ...[
-        const SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Not Started', isLarge: true)),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          sliver: SliverList.builder(
-            itemCount: data.notStartedTasks.length,
-            itemBuilder: (context, index) => TaskCard(task: data.notStartedTasks[index]),
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 16)),
-      ],
-
-      if (data.completedTasks.isNotEmpty) ...[
-        const SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Completed History', isLarge: true)),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          sliver: SliverList.builder(
-            itemCount: visibleCompleted.length,
-            itemBuilder: (context, index) => TaskCard(task: visibleCompleted[index]),
-          ),
-        ),
-        if (provider.isLoadingMore)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-          )
-        else if (provider.hasMoreCompletedTasks)
-          SliverToBoxAdapter(
-            child: Center(
-              child: TextButton(
-                onPressed: provider.loadMoreCompletedTasks,
-                child: const Text('SHOW MORE'),
+      Selector<DashboardProvider, List<String>>(
+        selector: (_, p) => p.inProgressDateList,
+        shouldRebuild: (prev, next) {
+          if (prev.length != next.length) return true;
+          for (int i = 0; i < prev.length; i++) {
+            if (prev[i] != next[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, dates, _) {
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'In Progress (${dates.length})', isLarge: true)),
               ),
-            ),
-          ),
-      ],
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                sliver: SliverFixedExtentList.builder(
+                  itemExtent: 88,
+                  itemCount: dates.length,
+                  itemBuilder: (context, index) {
+                    final date = dates[index];
+                    return TaskCard(
+                      key: ValueKey('in-progress-$date'),
+                      date: date,
+                    );
+                  },
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            ],
+          );
+        },
+      ),
+
+      Selector<DashboardProvider, List<String>>(
+        selector: (_, p) => p.todayDateList,
+        shouldRebuild: (prev, next) {
+          if (prev.length != next.length) return true;
+          for (int i = 0; i < prev.length; i++) {
+            if (prev[i] != next[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, dates, _) {
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Today\'s Tasks (${dates.length})', isLarge: true)),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                sliver: SliverFixedExtentList.builder(
+                  itemExtent: 88,
+                  itemCount: dates.length,
+                  itemBuilder: (context, index) {
+                    final date = dates[index];
+                    return TaskCard(
+                      key: ValueKey('today-$date'),
+                      date: date,
+                    );
+                  },
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            ],
+          );
+        },
+      ),
+
+      Selector<DashboardProvider, List<String>>(
+        selector: (_, p) => p.repetitionDateList,
+        shouldRebuild: (prev, next) {
+          if (prev.length != next.length) return true;
+          for (int i = 0; i < prev.length; i++) {
+            if (prev[i] != next[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, dates, _) {
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Repetition (${dates.length})', isLarge: true)),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                sliver: SliverFixedExtentList.builder(
+                  itemExtent: 88,
+                  itemCount: dates.length,
+                  itemBuilder: (context, index) {
+                    final date = dates[index];
+                    return TaskCard(
+                      key: ValueKey('repetition-$date'),
+                      date: date,
+                    );
+                  },
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            ],
+          );
+        },
+      ),
+
+      Selector<DashboardProvider, List<String>>(
+        selector: (_, p) => p.notStartedDateList,
+        shouldRebuild: (prev, next) {
+          if (prev.length != next.length) return true;
+          for (int i = 0; i < prev.length; i++) {
+            if (prev[i] != next[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, dates, _) {
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Not Started (${dates.length})', isLarge: true)),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                sliver: SliverFixedExtentList.builder(
+                  itemExtent: 88,
+                  itemCount: dates.length,
+                  itemBuilder: (context, index) {
+                    final date = dates[index];
+                    return TaskCard(
+                      key: ValueKey('not-started-$date'),
+                      date: date,
+                    );
+                  },
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            ],
+          );
+        },
+      ),
+
+      Selector<DashboardProvider, (List<String>, int)>(
+        selector: (_, p) => (p.completedDateList, p.data?.completedTasks.length ?? 0),
+        shouldRebuild: (prev, next) {
+          if (prev.$2 != next.$2) return true;
+          if (prev.$1.length != next.$1.length) return true;
+          for (int i = 0; i < prev.$1.length; i++) {
+            if (prev.$1[i] != next.$1[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, state, _) {
+          final (dates, totalCount) = state;
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Completed History ($totalCount)', isLarge: true)),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                sliver: SliverList.builder(
+                  itemCount: dates.length,
+                  itemBuilder: (context, index) {
+                    final date = dates[index];
+                    return TaskCard(
+                      key: ValueKey('completed-$date'),
+                      date: date,
+                    );
+                  },
+                ),
+              ),
+              Selector<DashboardProvider, (bool, bool)>(
+                selector: (_, p) => (p.isLoadingMore, p.hasMoreCompletedTasks),
+                builder: (context, state, _) {
+                  final (isLoadingMore, hasMore) = state;
+                  if (isLoadingMore) {
+                    return const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
+                    );
+                  } else if (hasMore) {
+                    return SliverToBoxAdapter(
+                      child: Center(
+                        child: TextButton(
+                          onPressed: provider.loadMoreCompletedTasks,
+                          child: const Text('SHOW MORE'),
+                        ),
+                      ),
+                    );
+                  }
+                  return const SliverToBoxAdapter(child: SizedBox.shrink());
+                },
+              ),
+            ],
+          );
+        },
+      ),
       const SliverToBoxAdapter(child: SizedBox(height: 40)),
     ];
   }
 
-  List<Widget> _buildWideSlivers(BuildContext context, DashboardData data, DashboardProvider provider) {
-    final nextUnread = provider.nextUnreadTaskAndArticle;
-    final visibleCompleted = provider.visibleCompletedTasks;
-
+  List<Widget> _buildWideSlivers(BuildContext context, DashboardProvider provider) {
     return [
-      if (nextUnread != null)
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-          sliver: SliverToBoxAdapter(
-            child: _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
-          ),
-        ),
+      Selector<DashboardProvider, Map<String, dynamic>?>(
+        selector: (_, p) => p.nextUnreadTaskAndArticle,
+        builder: (context, nextUnread, _) {
+          if (nextUnread == null) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+            sliver: SliverToBoxAdapter(
+              child: _buildContinueReadingButton(context, nextUnread['task'], nextUnread['article']),
+            ),
+          );
+        },
+      ),
 
-      if (data.inProgressTasks.isNotEmpty) ...[
-        const SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'In Progress', isLarge: true)),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 10,
-              mainAxisExtent: 80,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => TaskCard(task: data.inProgressTasks[index]),
-              childCount: data.inProgressTasks.length,
-            ),
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 20)),
-      ],
-
-      if (data.todayTasks.isNotEmpty) ...[
-        const SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Today\'s Tasks', isLarge: true)),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 10,
-              mainAxisExtent: 80,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => TaskCard(task: data.todayTasks[index]),
-              childCount: data.todayTasks.length,
-            ),
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 20)),
-      ],
-
-      if (data.notStartedTasks.isNotEmpty) ...[
-        const SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Not Started', isLarge: true)),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          sliver: SliverList.builder(
-            itemCount: data.notStartedTasks.length,
-            itemBuilder: (context, index) => TaskCard(task: data.notStartedTasks[index]),
-          ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 20)),
-      ],
-
-      if (data.completedTasks.isNotEmpty) ...[
-        const SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Completed History', isLarge: true)),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          sliver: SliverList.builder(
-            itemCount: visibleCompleted.length,
-            itemBuilder: (context, index) => TaskCard(task: visibleCompleted[index]),
-          ),
-        ),
-        if (provider.isLoadingMore)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-          )
-        else if (provider.hasMoreCompletedTasks)
-          SliverToBoxAdapter(
-            child: Center(
-              child: TextButton(
-                onPressed: provider.loadMoreCompletedTasks,
-                child: const Text('SHOW MORE'),
+      Selector<DashboardProvider, List<String>>(
+        selector: (_, p) => p.inProgressDateList,
+        shouldRebuild: (prev, next) {
+          if (prev.length != next.length) return true;
+          for (int i = 0; i < prev.length; i++) {
+            if (prev[i] != next[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, dates, _) {
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'In Progress (${dates.length})', isLarge: true)),
               ),
-            ),
-          ),
-      ],
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 10,
+                    mainAxisExtent: 80,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final date = dates[index];
+                      return TaskCard(
+                        key: ValueKey('wide-in-progress-$date'),
+                        date: date,
+                      );
+                    },
+                    childCount: dates.length,
+                  ),
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+            ],
+          );
+        },
+      ),
+
+      Selector<DashboardProvider, List<String>>(
+        selector: (_, p) => p.todayDateList,
+        shouldRebuild: (prev, next) {
+          if (prev.length != next.length) return true;
+          for (int i = 0; i < prev.length; i++) {
+            if (prev[i] != next[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, dates, _) {
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Today\'s Tasks (${dates.length})', isLarge: true)),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 10,
+                    mainAxisExtent: 80,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final date = dates[index];
+                      return TaskCard(
+                        key: ValueKey('wide-today-$date'),
+                        date: date,
+                      );
+                    },
+                    childCount: dates.length,
+                  ),
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+            ],
+          );
+        },
+      ),
+
+      Selector<DashboardProvider, List<String>>(
+        selector: (_, p) => p.repetitionDateList,
+        shouldRebuild: (prev, next) {
+          if (prev.length != next.length) return true;
+          for (int i = 0; i < prev.length; i++) {
+            if (prev[i] != next[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, dates, _) {
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Repetition (${dates.length})', isLarge: true)),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 10,
+                    mainAxisExtent: 80,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final date = dates[index];
+                      return TaskCard(
+                        key: ValueKey('wide-repetition-$date'),
+                        date: date,
+                      );
+                    },
+                    childCount: dates.length,
+                  ),
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+            ],
+          );
+        },
+      ),
+
+      Selector<DashboardProvider, List<String>>(
+        selector: (_, p) => p.notStartedDateList,
+        shouldRebuild: (prev, next) {
+          if (prev.length != next.length) return true;
+          for (int i = 0; i < prev.length; i++) {
+            if (prev[i] != next[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, dates, _) {
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Not Started (${dates.length})', isLarge: true)),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                sliver: SliverFixedExtentList.builder(
+                  itemExtent: 88,
+                  itemCount: dates.length,
+                  itemBuilder: (context, index) {
+                    final date = dates[index];
+                    return TaskCard(
+                      key: ValueKey('wide-not-started-$date'),
+                      date: date,
+                    );
+                  },
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+            ],
+          );
+        },
+      ),
+
+      Selector<DashboardProvider, (List<String>, int)>(
+        selector: (_, p) => (p.completedDateList, p.data?.completedTasks.length ?? 0),
+        shouldRebuild: (prev, next) {
+          if (prev.$2 != next.$2) return true;
+          if (prev.$1.length != next.$1.length) return true;
+          for (int i = 0; i < prev.$1.length; i++) {
+            if (prev.$1[i] != next.$1[i]) return true;
+          }
+          return false;
+        },
+        builder: (context, state, _) {
+          final (dates, totalCount) = state;
+          if (dates.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(child: SectionHeader(title: 'Completed History ($totalCount)', isLarge: true)),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                sliver: SliverList.builder(
+                  itemCount: dates.length,
+                  itemBuilder: (context, index) {
+                    final date = dates[index];
+                    return TaskCard(
+                      key: ValueKey('wide-completed-$date'),
+                      date: date,
+                    );
+                  },
+                ),
+              ),
+              Selector<DashboardProvider, (bool, bool)>(
+                selector: (_, p) => (p.isLoadingMore, p.hasMoreCompletedTasks),
+                builder: (context, state, _) {
+                  final (isLoadingMore, hasMore) = state;
+                  if (isLoadingMore) {
+                    return const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
+                    );
+                  } else if (hasMore) {
+                    return SliverToBoxAdapter(
+                      child: Center(
+                        child: TextButton(
+                          onPressed: provider.loadMoreCompletedTasks,
+                          child: const Text('SHOW MORE'),
+                        ),
+                      ),
+                    );
+                  }
+                  return const SliverToBoxAdapter(child: SizedBox.shrink());
+                },
+              ),
+            ],
+          );
+        },
+      ),
       const SliverToBoxAdapter(child: SizedBox(height: 40)),
     ];
   }
@@ -534,15 +878,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () {
-          unawaited(Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ArticleReaderScreen(
-                initialUrl: article.url,
-              ),
-            ),
-          ));
+        onTap: () async {
+          final profile = await ProfileService().getProfile();
+          final preference = profile?.readingPreference ?? 'internal_browser';
+          
+          if (context.mounted) {
+            await LinkLauncherUtils.launchArticle(
+              context: context,
+              article: article,
+              preference: preference,
+              task: task,
+            );
+          }
         },
         borderRadius: BorderRadius.circular(16),
         child: Container(
@@ -555,13 +902,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: primaryColor.withValues(alpha: 0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            // Removed BoxShadow for GPU performance
           ),
           child: Row(
             children: [
@@ -578,10 +919,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'CONTINUE READING',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.7),
+                        color: Colors.white70,
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.2,
@@ -601,8 +942,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     Text(
                       'FROM ${task.date.toUpperCase()}',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.5),
+                      style: const TextStyle(
+                        color: Colors.white54,
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
                       ),

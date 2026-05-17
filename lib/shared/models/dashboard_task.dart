@@ -1,6 +1,7 @@
 import 'article_model.dart';
 import 'quiz_model.dart';
 import 'repetition_data.dart';
+import 'package:upsc_ca_ui/core/utils/date_formatter.dart';
 
 enum TaskType { normal, revision }
 
@@ -13,9 +14,13 @@ class DashboardTask {
   final TaskType type;
   final int? dueDays;
   final String? lastCompleted;
+  final bool isOverdue;
   final List<RepetitionData>? repetitions;
   final List<QuizModel> quizzes;
   final List<ArticleModel> articles;
+  
+  // Optimization: Store pre-parsed date
+  final DateTime isoDate;
 
   DashboardTask({
     required this.date,
@@ -26,14 +31,17 @@ class DashboardTask {
     this.type = TaskType.normal,
     this.dueDays,
     this.lastCompleted,
+    this.isOverdue = false,
     this.repetitions,
     this.quizzes = const [],
     this.articles = const [],
-  });
+    DateTime? isoDate,
+  }) : isoDate = isoDate ?? DateFormatter.parseAny(date);
 
   factory DashboardTask.fromJson(Map<String, dynamic> json) {
+    final String date = json['date'] as String;
     return DashboardTask(
-      date: json['date'] as String,
+      date: date,
       articlesDone: json['articlesDone'] as int,
       totalArticles: json['totalArticles'] as int,
       quizzesDone: json['quizzesDone'] as int,
@@ -41,6 +49,7 @@ class DashboardTask {
       type: TaskType.values.firstWhere((e) => e.name == (json['type'] ?? 'normal')),
       dueDays: json['dueDays'] as int?,
       lastCompleted: json['lastCompleted'] as String?,
+      isOverdue: json['isOverdue'] as bool? ?? false,
       repetitions: json['repetitions'] != null
           ? (json['repetitions'] as List)
               .map((r) => RepetitionData.fromJson(r as Map<String, dynamic>))
@@ -56,8 +65,12 @@ class DashboardTask {
               .map((a) => ArticleModel.fromJson(a as Map<String, dynamic>))
               .toList()
           : [],
+      isoDate: DateFormatter.parseAny(date),
     );
   }
+
+  bool get isFullyCompleted => (totalArticles + totalQuizzes) > 0 && 
+                               (articlesDone + quizzesDone) == (totalArticles + totalQuizzes);
 
   Map<String, dynamic> toJson() {
     return {
@@ -69,40 +82,11 @@ class DashboardTask {
       'type': type.name,
       'dueDays': dueDays,
       'lastCompleted': lastCompleted,
+      'isOverdue': isOverdue,
       'repetitions': repetitions?.map((r) => r.toJson()).toList(),
       'quizzes': quizzes.map((q) => q.toJson()).toList(),
       'articles': articles.map((a) => a.toJson()).toList(),
     };
-  }
-
-  bool get isFullyCompleted => (totalArticles + totalQuizzes) > 0 && 
-                               (articlesDone + quizzesDone) == (totalArticles + totalQuizzes);
-
-  DateTime get isoDate {
-    try {
-      return DateTime.parse(_toIsoDate(date));
-    } catch (_) {
-      return DateTime(2000);
-    }
-  }
-
-  String _toIsoDate(String dateStr) {
-    try {
-      return DateTime.parse(dateStr).toIso8601String().split('T')[0];
-    } catch (_) {
-      try {
-        final parts = dateStr.split(' ');
-        if (parts.length == 3) {
-          final day = parts[0].padLeft(2, '0');
-          final monthStr = parts[1].toUpperCase();
-          final year = parts[2];
-          final months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-          final monthIdx = months.indexOf(monthStr) + 1;
-          if (monthIdx > 0) return '$year-${monthIdx.toString().padLeft(2, '0')}-$day';
-        }
-      } catch (_) {}
-      return "0000-00-00";
-    }
   }
 
   DashboardTask copyWith({
@@ -114,9 +98,11 @@ class DashboardTask {
     TaskType? type,
     int? dueDays,
     String? lastCompleted,
+    bool? isOverdue,
     List<RepetitionData>? repetitions,
     List<QuizModel>? quizzes,
     List<ArticleModel>? articles,
+    DateTime? isoDate,
   }) {
     return DashboardTask(
       date: date ?? this.date,
@@ -127,9 +113,38 @@ class DashboardTask {
       type: type ?? this.type,
       dueDays: dueDays ?? this.dueDays,
       lastCompleted: lastCompleted ?? this.lastCompleted,
+      isOverdue: isOverdue ?? this.isOverdue,
       repetitions: repetitions ?? this.repetitions,
       quizzes: quizzes ?? this.quizzes,
       articles: articles ?? this.articles,
+      isoDate: isoDate ?? this.isoDate,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is DashboardTask &&
+        other.date == date &&
+        other.articlesDone == articlesDone &&
+        other.totalArticles == totalArticles &&
+        other.quizzesDone == quizzesDone &&
+        other.totalQuizzes == totalQuizzes &&
+        other.type == type &&
+        other.dueDays == dueDays &&
+        other.lastCompleted == lastCompleted &&
+        other.isOverdue == isOverdue;
+  }
+
+  @override
+  int get hashCode =>
+      date.hashCode ^
+      articlesDone.hashCode ^
+      totalArticles.hashCode ^
+      quizzesDone.hashCode ^
+      totalQuizzes.hashCode ^
+      type.hashCode ^
+      dueDays.hashCode ^
+      lastCompleted.hashCode ^
+      isOverdue.hashCode;
 }

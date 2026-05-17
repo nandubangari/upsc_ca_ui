@@ -17,13 +17,11 @@ class DateFormatter {
   }
 
   static DateTime parseAny(String dateStr) {
-    AppLogger.d("[DateFormatter] Attempting to parse: $dateStr");
     if (dateStr.isEmpty) return DateTime(2000);
 
     try {
       // 1. Try standard ISO
       final dt = DateTime.parse(dateStr);
-      AppLogger.d("[DateFormatter] Successfully parsed as ISO: $dt");
       return dt;
     } catch (_) {}
 
@@ -41,18 +39,16 @@ class DateFormatter {
         
         if (day != null && year != null && month > 0) {
           final dt = DateTime(year, month, day);
-          AppLogger.d("[DateFormatter] Successfully parsed manually: $dt");
           return dt;
         }
       }
     } catch (e) {
-      AppLogger.d("[DateFormatter] Manual parse failed: $e");
+      // Manual parse failed
     }
     
     try {
       // 3. Fallback to DateFormat
       final dt = DateFormat('dd MMM yyyy', 'en_US').parse(dateStr.toUpperCase());
-      AppLogger.d("[DateFormatter] Successfully parsed with DateFormat: $dt");
       return dt;
     } catch (e) {
       AppLogger.e("[DateFormatter] All parsing attempts failed for: $dateStr. Last error: $e");

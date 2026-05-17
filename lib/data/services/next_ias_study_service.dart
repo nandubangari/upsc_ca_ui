@@ -80,7 +80,7 @@ class NextIASStudyService {
           title: title,
           url: href.trim(),
           date: isoDate,
-          source: 'NextIAS',
+          source: 'nextias',
           subtitle: pageDate,
         ),
       );
@@ -95,7 +95,7 @@ class NextIASStudyService {
 
     return [
       QuizModel(
-        source: 'NextIAS',
+        source: 'nextias',
         title: 'Daily CA MCQs ($formattedTitleDate)',
         url: 'https://www.nextias.com/daily-mcq/daily-ca-mcqs',
         isCompleted: false,

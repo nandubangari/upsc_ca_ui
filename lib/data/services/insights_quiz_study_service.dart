@@ -1,4 +1,5 @@
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as parser;
 import 'package:intl/intl.dart';
@@ -121,7 +122,17 @@ class InsightsQuizStudyService {
       return [];
     }
 
-    final document = parser.parse(response.body);
+    return await compute(_parseListingStatic, {
+      'html': response.body,
+      'type': type,
+    });
+  }
+
+  static List<InsightsQuizItem> _parseListingStatic(Map<String, dynamic> params) {
+    final String html = params['html'];
+    final String type = params['type'];
+    
+    final document = parser.parse(html);
     final List<InsightsQuizItem> results = [];
 
     /// ✅ Core selector (same for all pages)
@@ -136,8 +147,8 @@ class InsightsQuizStudyService {
       // Skip compilation links
       if (title.toLowerCase().contains("compilation")) continue;
 
-      final date = _extractDate(title);
-      final subject = type == "STATIC" ? _extractSubject(title) : null;
+      final date = _extractDateStatic(title);
+      final subject = type == "STATIC" ? _extractSubjectStatic(title) : null;
 
       results.add(
         InsightsQuizItem(
@@ -155,7 +166,7 @@ class InsightsQuizStudyService {
 
   /// 🧠 Extract subject
   /// Example: "Polity", "Environment"
-  String? _extractSubject(String title) {
+  static String? _extractSubjectStatic(String title) {
     // Regex for: "UPSC Static Quiz – Polity : 5 May 2026"
     final regex = RegExp(r'Quiz\s+[–-]\s+(.*?)\s+:');
     final match = regex.firstMatch(title);
@@ -163,7 +174,7 @@ class InsightsQuizStudyService {
     return match?.group(1)?.trim();
   }
 
-  DateTime? _extractDate(String title) {
+  static DateTime? _extractDateStatic(String title) {
     // Standard format for InsightsIAS
     // Works for: "UPSC Editorials Quiz : 5 May 2026", "Current Affairs Quiz, 18 February 2023", etc.
     final regex = RegExp(r'(\d{1,2})[,\s]+(\w+)[,\s]+(\d{4})');

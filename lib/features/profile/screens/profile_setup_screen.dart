@@ -7,7 +7,6 @@ import 'package:upsc_ca_ui/shared/widgets/blur_button.dart';
 import 'package:upsc_ca_ui/shared/widgets/modern_text_field.dart';
 import 'package:upsc_ca_ui/shared/widgets/modern_switch.dart';
 import 'package:upsc_ca_ui/shared/widgets/modern_date_picker.dart';
-import 'package:upsc_ca_ui/shared/widgets/gradient_background.dart';
 
 import 'package:upsc_ca_ui/providers/theme_provider.dart';
 import 'package:upsc_ca_ui/data/repositories/auth_repository.dart';
@@ -26,12 +25,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final ProfileService _profileService = ProfileService();
   final AuthRepository _authRepository = AuthRepository();
   late TextEditingController _nameController;
+  late DateTime _joinedAt;
   late DateTime _startDate;
+  DateTime? _examDate;
   
   Map<String, bool> _articleSources = {};
   Map<String, bool> _quizSources = {};
-  Set<int> _repetitionDays = {};
-  List<int> _availableDays = [];
+  List<int> _repetitionIntervals = [1, 7, 30, 120, 300];
+  String _readingPreference = 'internal_browser';
 
   bool _isDataLoading = true;
 
@@ -39,6 +40,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   void initState() {
     super.initState();
     _nameController = TextEditingController();
+    _joinedAt = DateTime.now();
     _startDate = DateTime.now();
     unawaited(_loadProfileData());
   }
@@ -48,18 +50,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       final user = _authRepository.currentUser;
       final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
       
-      // 1. Try fetching from Cloud first
       ProfileData? cloudData;
       if (user != null) {
         cloudData = await _profileService.fetchProfileFromCloud(user.uid);
       }
       
-      // 2. Load JSON as a base for other settings (intervals, sources)
       final ProfileData localData = await _profileService.fetchProfileFromJson();
 
       if (mounted) {
         setState(() {
-          // 3. Name Priority: Cloud > Google Auth > JSON
           if (cloudData != null) {
             _nameController.text = cloudData.name;
           } else if (user != null && user.displayName != null && user.displayName!.isNotEmpty) {
@@ -68,25 +67,23 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             _nameController.text = localData.name;
           }
 
-          // 4. Other settings (prefer Cloud, fallback to JSON)
           final activeData = cloudData ?? localData;
+          _joinedAt = activeData.joinedAt;
           _startDate = activeData.startDate;
-          _repetitionDays = activeData.repetitionDays;
-          _availableDays = activeData.availableDays;
+          _examDate = activeData.examDate;
+          _repetitionIntervals = activeData.repetitionIntervals;
+          _readingPreference = activeData.readingPreference;
           
-          // Merge Article Sources: Keep saved preferences, add new ones from constants
           _articleSources = {};
           for (var source in AppConstants.defaultArticleSources) {
             _articleSources[source] = activeData.articleSources[source] ?? true;
           }
           
-          // Merge Quiz Sources
           _quizSources = {};
           for (var source in AppConstants.defaultQuizSources) {
             _quizSources[source] = activeData.quizSources[source] ?? true;
           }
           
-          // Apply theme color
           if (activeData.themeColorValue != null) {
             unawaited(themeProvider.setPrimaryColor(Color(activeData.themeColorValue!)));
           }
@@ -111,75 +108,73 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isDataLoading) {
-      return GradientBackground(
-        child: Center(
+      return Scaffold(
+        body: Center(
           child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary, strokeWidth: 1),
         ),
       );
     }
 
-    return GradientBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Stack(
-          children: [
-            SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                child: Column(
-                  children: [
-                    SizedBox(height: MediaQuery.of(context).padding.top + 20),
-                    _buildModernHeader(context),
-                    const SizedBox(height: 32),
-                    _buildPersonalCard(context),
-                    const SizedBox(height: 20),
-                    _buildThemeColorCard(context),
-                    const SizedBox(height: 20),
-                    _buildIntervalsCard(context),
-                    const SizedBox(height: 20),
-                    _buildSourcesCard(context, 'Article Sources', _articleSources),
-                    const SizedBox(height: 20),
-                    _buildSourcesCard(context, 'Quiz Sources', _quizSources),
-                    const SizedBox(height: 40),
-                    _buildModernFinishButton(context),
-                    const SizedBox(height: 60),
-                  ],
-                ),
-              ),
-            ),
-            
-            // Minimal Float Header
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 10,
-              left: 20,
-              right: 20,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Scaffold(
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Column(
                 children: [
-                  if (Navigator.canPop(context))
-                    BlurButton(
-                      icon: Icons.arrow_back_ios_new_rounded,
-                      onTap: () => Navigator.pop(context),
-                    )
-                  else
-                    const SizedBox(width: 44),
-                  
-                  Consumer<ThemeProvider>(
-                    builder: (context, themeProvider, _) {
-                      final isDarkTheme = themeProvider.isDarkMode;
-                      return BlurButton(
-                        icon: isDarkTheme ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                        onTap: () => unawaited(themeProvider.toggleTheme(!isDarkTheme)),
-                        iconColor: isDarkTheme ? Colors.amber : Colors.indigo,
-                      );
-                    },
-                  ),
+                  SizedBox(height: MediaQuery.of(context).padding.top + 20),
+                  _buildModernHeader(context),
+                  const SizedBox(height: 32),
+                  _buildPersonalCard(context),
+                  const SizedBox(height: 20),
+                  _buildThemeColorCard(context),
+                  const SizedBox(height: 20),
+                  _buildReadingPreferenceCard(context),
+                  const SizedBox(height: 20),
+                  _buildRepetitionIntervalsCard(context),
+                  const SizedBox(height: 20),
+                  _buildSourcesCard(context, 'Article Sources', _articleSources),
+                  const SizedBox(height: 20),
+                  _buildSourcesCard(context, 'Quiz Sources', _quizSources),
+                  const SizedBox(height: 40),
+                  _buildModernFinishButton(context),
+                  const SizedBox(height: 60),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 10,
+            left: 20,
+            right: 20,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                if (Navigator.canPop(context))
+                  BlurButton(
+                    icon: Icons.arrow_back_ios_new_rounded,
+                    onTap: () => Navigator.pop(context),
+                  )
+                else
+                  const SizedBox(width: 44),
+                
+                Consumer<ThemeProvider>(
+                  builder: (context, themeProvider, _) {
+                    final isDarkTheme = themeProvider.isDarkMode;
+                    return BlurButton(
+                      icon: isDarkTheme ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                      onTap: () => unawaited(themeProvider.toggleTheme(!isDarkTheme)),
+                      iconColor: isDarkTheme ? Colors.amber : Colors.indigo,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -248,6 +243,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             firstDate: DateTime(2020),
             lastDate: DateTime.now(),
             onDateSelected: (date) => setState(() => _startDate = date),
+          ),
+          const SizedBox(height: 20),
+          ModernDatePicker(
+            label: 'TARGET EXAM DATE',
+            selectedDate: _examDate ?? DateTime.now().add(const Duration(days: 365)),
+            firstDate: DateTime.now(),
+            lastDate: DateTime(2030),
+            onDateSelected: (date) => setState(() => _examDate = date),
           ),
         ],
       ),
@@ -408,29 +411,192 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     );
   }
 
-  Widget _buildIntervalsCard(BuildContext context) {
+  Widget _buildReadingPreferenceCard(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    final options = [
+      {'value': 'reader', 'label': 'Reader Mode', 'icon': Icons.chrome_reader_mode_outlined},
+      {'value': 'internal_browser', 'label': 'In-App Browser', 'icon': Icons.tab_unselected_rounded},
+    ];
+
     return _buildModernCard(
-      title: 'Study Intervals',
-      icon: Icons.timer_outlined,
+      title: 'Reading Experience',
+      icon: Icons.menu_book_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'REPETITION CYCLE (DAYS)',
-            style: TextStyle(color: isDark ? Colors.white24 : Colors.black26, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+            'SELECT PREFERRED READING MODE',
+            style: TextStyle(
+              color: isDark ? Colors.white24 : Colors.black26,
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...options.map((opt) {
+            final isSelected = _readingPreference == opt['value'];
+            return GestureDetector(
+              onTap: () => setState(() => _readingPreference = opt['value'] as String),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: isSelected ? primaryColor.withValues(alpha: 0.1) : (isDark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02)),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isSelected ? primaryColor : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      opt['icon'] as IconData,
+                      size: 20,
+                      color: isSelected ? primaryColor : (isDark ? Colors.white38 : Colors.black38),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        opt['label'] as String,
+                        style: TextStyle(
+                          color: isSelected ? (isDark ? Colors.white : Colors.black) : (isDark ? Colors.white60 : Colors.black54),
+                          fontSize: 14,
+                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (isSelected)
+                      Icon(Icons.check_circle_rounded, size: 20, color: primaryColor),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRepetitionIntervalsCard(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    return _buildModernCard(
+      title: 'Revision Cycle',
+      icon: Icons.repeat_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'SPACED REPETITION INTERVALS (DAYS)',
+            style: TextStyle(
+              color: isDark ? Colors.white24 : Colors.black26, 
+              fontSize: 9, 
+              fontWeight: FontWeight.w900, 
+              letterSpacing: 1.5,
+            ),
           ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: [
-              ..._availableDays.map((day) {
-                final isSelected = _repetitionDays.contains(day);
-                return _buildIntervalChip(day, isSelected);
-              }),
-              _buildAddIntervalButton(),
+              ..._repetitionIntervals.map((interval) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: primaryColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: primaryColor.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$interval DAYS',
+                      style: TextStyle(
+                        color: primaryColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _repetitionIntervals.remove(interval);
+                        });
+                      },
+                      child: Icon(Icons.close_rounded, size: 14, color: primaryColor.withValues(alpha: 0.5)),
+                    ),
+                  ],
+                ),
+              )),
+              GestureDetector(
+                onTap: _showAddIntervalDialog,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Icon(Icons.add_rounded, size: 16, color: primaryColor),
+                ),
+              ),
             ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Complete all tasks for a day to schedule the next revision.',
+            style: TextStyle(
+              color: isDark ? Colors.white24 : Colors.black26,
+              fontSize: 9,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddIntervalDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('Add Revision Interval', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Number of days...',
+            hintStyle: const TextStyle(color: Colors.white24),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Theme.of(context).colorScheme.primary)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL', style: TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.w800))),
+          ElevatedButton(
+            onPressed: () {
+              final val = int.tryParse(controller.text);
+              if (val != null && val > 0 && !_repetitionIntervals.contains(val)) {
+                setState(() {
+                  _repetitionIntervals.add(val);
+                  _repetitionIntervals.sort();
+                });
+                Navigator.pop(context);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            child: const Text('ADD', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
           ),
         ],
       ),
@@ -494,75 +660,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
 
-
-  Widget _buildIntervalChip(int day, bool isSelected) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          if (isSelected) {
-            _repetitionDays.remove(day);
-          } else {
-            _repetitionDays.add(day);
-          }
-        });
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
-        decoration: BoxDecoration(
-          color: isSelected ? primaryColor : (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: isSelected ? [BoxShadow(color: primaryColor.withValues(alpha: 0.4), blurRadius: 10)] : [],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '$day DAYS',
-              style: TextStyle(
-                color: isSelected ? Colors.white : (isDark ? Colors.white60 : Colors.black54),
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _availableDays.remove(day);
-                  _repetitionDays.remove(day);
-                });
-              },
-              child: Icon(
-                Icons.close_rounded,
-                size: 14,
-                color: isSelected ? Colors.white.withValues(alpha: 0.5) : (isDark ? Colors.white24 : Colors.black12),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAddIntervalButton() {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: _showAddDayDialog,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
-        ),
-        child: Icon(Icons.add_rounded, size: 16, color: primaryColor),
-      ),
-    );
-  }
-
-
   Widget _buildModernFinishButton(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     final primaryColor = Theme.of(context).colorScheme.primary;
@@ -574,14 +671,24 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         
         final user = _authRepository.currentUser;
         if (user != null) {
+          final now = DateTime.now();
+          // If first time joining, set joinedAt to now and initialize trial
+          final trialStart = _joinedAt;
+          final trialEnd = trialStart.add(const Duration(days: 90));
+
           final profile = ProfileData(
             name: _nameController.text,
+            joinedAt: _joinedAt,
             startDate: _startDate,
+            examDate: _examDate,
             articleSources: _articleSources,
             quizSources: _quizSources,
-            repetitionDays: _repetitionDays,
-            availableDays: _availableDays,
+            repetitionIntervals: _repetitionIntervals,
+            readingPreference: _readingPreference,
             themeColorValue: themeProvider.primaryColor.toARGB32(),
+            isPremium: true, // Default to true during trial
+            trialStartDate: trialStart,
+            trialEndDate: trialEnd,
           );
           await _profileService.saveProfileToCloud(user.uid, profile);
         }
@@ -616,73 +723,4 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       ),
     );
   }
-
-  void _showAddDayDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text('Add Interval', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          autofocus: true,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Days...',
-            hintStyle: const TextStyle(color: Colors.white24),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Theme.of(context).colorScheme.primary)),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL', style: TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.w800))),
-          ElevatedButton(
-            onPressed: () {
-              final val = int.tryParse(controller.text);
-              if (val != null && val > 0 && !_availableDays.contains(val)) {
-                setState(() {
-                  _availableDays.add(val);
-                  _availableDays.sort();
-                  _repetitionDays.add(val);
-                });
-                Navigator.pop(context);
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            child: const Text('ADD', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
-          ),
-        ],
-      ),
-    );
-  }
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -3,77 +3,79 @@ import 'dashboard_task.dart';
 class DashboardData {
   final int daysLeft;
   final List<DashboardTask> todayTasks;
+  final List<DashboardTask> repetitionTasks;
   final List<DashboardTask> inProgressTasks;
   final List<DashboardTask> notStartedTasks;
   final List<DashboardTask> completedTasks;
+  
+  // Optimization: Pre-calculated and sorted list of all tasks
+  final List<DashboardTask> allTasks;
 
   DashboardData({
     required this.daysLeft,
     required this.todayTasks,
+    this.repetitionTasks = const [],
     this.inProgressTasks = const [],
     required this.notStartedTasks,
     required this.completedTasks,
-  });
+  }) : allTasks = _calculateAllTasks(todayTasks, repetitionTasks, inProgressTasks, notStartedTasks, completedTasks);
 
-  /// 🟢 Returns all tasks across all sections, sorted by date (latest first).
-  List<DashboardTask> get allTasks {
+  static List<DashboardTask> _calculateAllTasks(
+    List<DashboardTask> today,
+    List<DashboardTask> repetition,
+    List<DashboardTask> inProgress,
+    List<DashboardTask> notStarted,
+    List<DashboardTask> completed,
+  ) {
     final List<DashboardTask> combined = [
-      ...todayTasks,
-      ...inProgressTasks,
-      ...notStartedTasks,
-      ...completedTasks,
+      ...today,
+      ...repetition,
+      ...inProgress,
+      ...notStarted,
+      ...completed,
     ];
     
-    // Sort by date (latest first) to ensure consistent ordering everywhere
-    combined.sort((a, b) {
-      final isoA = _toIso(a.date);
-      final isoB = _toIso(b.date);
-      return isoB.compareTo(isoA);
-    });
-    
-    return combined;
-  }
-
-  String _toIso(String dateStr) {
-    try {
-      return DateTime.parse(dateStr).toIso8601String().split('T')[0];
-    } catch (_) {
-      try {
-        // Handle "DD MMM YYYY" format
-        final parts = dateStr.split(' ');
-        if (parts.length == 3) {
-          final day = parts[0].padLeft(2, '0');
-          final monthStr = parts[1].toUpperCase();
-          final year = parts[2];
-          
-          final months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-          final monthIdx = months.indexOf(monthStr) + 1;
-          if (monthIdx > 0) {
-            return '$year-${monthIdx.toString().padLeft(2, '0')}-$day';
-          }
-        }
-      } catch (_) {}
-      return "0000-00-00";
+    // Use a Set to avoid duplicates in allTasks if repetition tasks overlap
+    final Map<String, DashboardTask> uniqueMap = {};
+    for (var task in combined) {
+      uniqueMap[task.date] = task;
     }
+
+    final List<DashboardTask> uniqueList = uniqueMap.values.toList();
+    
+    // Sort by isoDate (pre-parsed) which is much faster than string parsing
+    uniqueList.sort((a, b) => b.isoDate.compareTo(a.isoDate));
+    return uniqueList;
   }
 
   factory DashboardData.fromJson(Map<String, dynamic> json) {
-    return DashboardData(
-      daysLeft: json['daysLeft'] as int,
-      todayTasks: (json['todayTasks'] as List)
+    final todayTasks = (json['todayTasks'] as List)
           .map((t) => DashboardTask.fromJson(t as Map<String, dynamic>))
-          .toList(),
-      inProgressTasks: json['inProgressTasks'] != null
+          .toList();
+    final repetitionTasks = json['repetitionTasks'] != null
+          ? (json['repetitionTasks'] as List)
+              .map((t) => DashboardTask.fromJson(t as Map<String, dynamic>))
+              .toList()
+          : <DashboardTask>[];
+    final inProgressTasks = json['inProgressTasks'] != null
           ? (json['inProgressTasks'] as List)
               .map((t) => DashboardTask.fromJson(t as Map<String, dynamic>))
               .toList()
-          : [],
-      notStartedTasks: (json['notStartedTasks'] as List)
+          : <DashboardTask>[];
+    final notStartedTasks = (json['notStartedTasks'] as List)
           .map((t) => DashboardTask.fromJson(t as Map<String, dynamic>))
-          .toList(),
-      completedTasks: (json['completedTasks'] as List)
+          .toList();
+    final completedTasks = (json['completedTasks'] as List)
           .map((t) => DashboardTask.fromJson(t as Map<String, dynamic>))
-          .toList(),
+          .toList();
+
+    return DashboardData(
+      daysLeft: json['daysLeft'] as int,
+      todayTasks: todayTasks,
+      repetitionTasks: repetitionTasks,
+      inProgressTasks: inProgressTasks,
+      notStartedTasks: notStartedTasks,
+      completedTasks: completedTasks,
     );
   }
 
@@ -81,6 +83,7 @@ class DashboardData {
     return {
       'daysLeft': daysLeft,
       'todayTasks': todayTasks.map((t) => t.toJson()).toList(),
+      'repetitionTasks': repetitionTasks.map((t) => t.toJson()).toList(),
       'inProgressTasks': inProgressTasks.map((t) => t.toJson()).toList(),
       'notStartedTasks': notStartedTasks.map((t) => t.toJson()).toList(),
       'completedTasks': completedTasks.map((t) => t.toJson()).toList(),

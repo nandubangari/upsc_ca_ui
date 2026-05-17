@@ -517,20 +517,27 @@ class _ArticleContentViewState extends State<ArticleContentView> {
       case 'main_image':
         return Padding(
           padding: const EdgeInsets.only(bottom: 24),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: CachedNetworkImage(
-              imageUrl: item['data'],
-              width: double.infinity,
-              fit: BoxFit.contain,
-              memCacheWidth: isTablet ? 1200 : 800,
-              placeholder: (context, url) => Container(
-                height: 200,
-                color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
-                child: const Center(child: CircularProgressIndicator(strokeWidth: 1)),
+          child: CachedNetworkImage(
+            imageUrl: item['data'],
+            width: double.infinity,
+            fit: BoxFit.contain,
+            memCacheWidth: isTablet ? 1200 : 800,
+            imageBuilder: (context, imageProvider) => Container(
+              height: 200, // Approximate or let it expand
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                image: DecorationImage(image: imageProvider, fit: BoxFit.cover),
               ),
-              errorWidget: (context, url, error) => const SizedBox.shrink(),
             ),
+            placeholder: (context, url) => Container(
+              height: 200,
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Center(child: CircularProgressIndicator(strokeWidth: 1)),
+            ),
+            errorWidget: (context, url, error) => const SizedBox.shrink(),
           ),
         );
       case 'summary':
@@ -780,34 +787,50 @@ class _ArticleContentViewState extends State<ArticleContentView> {
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 24),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: (imageData.width != null && imageData.height != null)
-                ? AspectRatio(
-                    aspectRatio: imageData.width! / imageData.height!,
-                    child: CachedNetworkImage(
-                      imageUrl: imageData.url,
-                      width: double.infinity,
-                      fit: BoxFit.contain,
-                      memCacheWidth: isTablet ? 1200 : 800,
-                      placeholder: (context, url) => Container(
-                        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
-                      ),
-                      errorWidget: (context, url, error) => const SizedBox.shrink(),
-                    ),
-                  )
-                : CachedNetworkImage(
+          child: (imageData.width != null && imageData.height != null)
+              ? AspectRatio(
+                  aspectRatio: imageData.width! / imageData.height!,
+                  child: CachedNetworkImage(
                     imageUrl: imageData.url,
                     width: double.infinity,
                     fit: BoxFit.contain,
                     memCacheWidth: isTablet ? 1200 : 800,
+                    imageBuilder: (context, imageProvider) => Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        image: DecorationImage(image: imageProvider, fit: BoxFit.contain),
+                      ),
+                    ),
                     placeholder: (context, url) => Container(
-                      height: 100,
-                      color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                     ),
                     errorWidget: (context, url, error) => const SizedBox.shrink(),
                   ),
-          ),
+                )
+              : CachedNetworkImage(
+                  imageUrl: imageData.url,
+                  width: double.infinity,
+                  fit: BoxFit.contain,
+                  memCacheWidth: isTablet ? 1200 : 800,
+                  imageBuilder: (context, imageProvider) => Container(
+                    height: 200,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      image: DecorationImage(image: imageProvider, fit: BoxFit.contain),
+                    ),
+                  ),
+                  placeholder: (context, url) => Container(
+                    height: 100,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) => const SizedBox.shrink(),
+                ),
         );
       case ContentBlockType.callout:
         final innerBlocks = block.data as List<ContentBlock>;

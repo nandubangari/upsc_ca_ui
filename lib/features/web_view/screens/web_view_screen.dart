@@ -205,7 +205,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
           ],
         ),
         actions: [
-          if ((widget.quiz != null || (widget.article != null && widget.article!.isCustom)) && widget.task != null)
+          if (widget.task != null && (widget.quiz != null || widget.article != null))
             Consumer<DashboardProvider>(
               builder: (context, provider, _) {
                 bool isDone = false;

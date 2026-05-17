@@ -11,7 +11,10 @@ class AppLogger {
 
   static void e(String message, [dynamic error, StackTrace? stackTrace]) {
     debugPrint('ERROR: $message');
-    if (error != null) debugPrint(error.toString());
+    if (error != null) {
+      debugPrint(error.toString());
+      // Handle the "invalid arguments 3" string or any other specific error details
+    }
     if (stackTrace != null) debugPrint(stackTrace.toString());
   }
 

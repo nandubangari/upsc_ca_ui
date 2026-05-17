@@ -4,8 +4,11 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   cloud_firestore
+  connectivity_plus
   firebase_auth
   firebase_core
+  firebase_database
+  isar_flutter_libs
   url_launcher_windows
 )
 

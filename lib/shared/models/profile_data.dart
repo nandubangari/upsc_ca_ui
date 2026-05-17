@@ -1,47 +1,95 @@
 class ProfileData {
   final String name;
+  final DateTime joinedAt;
   final DateTime startDate;
   final Map<String, bool> articleSources;
   final Map<String, bool> quizSources;
-  final Set<int> repetitionDays;
-  final List<int> availableDays;
+  final List<int> repetitionIntervals;
   final int? themeColorValue; // Added to sync theme color
   final DateTime? examDate; // Target exam date for countdown
+  final String readingPreference; // reader, custom_tabs, internal_browser
+
+  // Subscription & Access Control
+  final bool isPremium;
+  final DateTime? trialStartDate;
+  final DateTime? trialEndDate;
+  final String? subscriptionPlan; // monthly, quarterly, yearly
+  final DateTime? subscriptionStartDate;
+  final DateTime? subscriptionEndDate;
+  final bool manualPremium;
+  final String? manualPremiumReason;
+  final String? purchasePlatform;
+  final DateTime? lastValidationAt;
 
   ProfileData({
     required this.name,
+    required this.joinedAt,
     required this.startDate,
     required this.articleSources,
     required this.quizSources,
-    required this.repetitionDays,
-    required this.availableDays,
+    this.repetitionIntervals = const [1, 7, 30, 120, 300],
     this.themeColorValue,
     this.examDate,
+    this.readingPreference = 'internal_browser',
+    this.isPremium = false,
+    this.trialStartDate,
+    this.trialEndDate,
+    this.subscriptionPlan,
+    this.subscriptionStartDate,
+    this.subscriptionEndDate,
+    this.manualPremium = false,
+    this.manualPremiumReason,
+    this.purchasePlatform,
+    this.lastValidationAt,
   });
 
   factory ProfileData.fromJson(Map<String, dynamic> json) {
     return ProfileData(
       name: json['name'] as String,
+      joinedAt: json['joinedAt'] != null ? DateTime.parse(json['joinedAt'] as String) : DateTime.now(),
       startDate: DateTime.parse(json['startDate'] as String),
       articleSources: Map<String, bool>.from(json['articleSources'] as Map),
       quizSources: Map<String, bool>.from(json['quizSources'] as Map),
-      repetitionDays: Set<int>.from(json['repetitionDays'] as List),
-      availableDays: List<int>.from(json['availableDays'] as List),
+      repetitionIntervals: json['repetitionIntervals'] != null 
+          ? List<int>.from(json['repetitionIntervals'] as List)
+          : const [1, 7, 30, 120, 300],
       themeColorValue: json['themeColorValue'] as int?,
       examDate: json['examDate'] != null ? DateTime.parse(json['examDate'] as String) : null,
+      readingPreference: json['readingPreference'] as String? ?? 'internal_browser',
+      isPremium: json['isPremium'] as bool? ?? false,
+      trialStartDate: json['trialStartDate'] != null ? DateTime.parse(json['trialStartDate'] as String) : null,
+      trialEndDate: json['trialEndDate'] != null ? DateTime.parse(json['trialEndDate'] as String) : null,
+      subscriptionPlan: json['subscriptionPlan'] as String?,
+      subscriptionStartDate: json['subscriptionStartDate'] != null ? DateTime.parse(json['subscriptionStartDate'] as String) : null,
+      subscriptionEndDate: json['subscriptionEndDate'] != null ? DateTime.parse(json['subscriptionEndDate'] as String) : null,
+      manualPremium: json['manualPremium'] as bool? ?? false,
+      manualPremiumReason: json['manualPremiumReason'] as String?,
+      purchasePlatform: json['purchasePlatform'] as String?,
+      lastValidationAt: json['lastValidationAt'] != null ? DateTime.parse(json['lastValidationAt'] as String) : null,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'name': name,
+      'joinedAt': joinedAt.toIso8601String(),
       'startDate': startDate.toIso8601String(),
       'articleSources': articleSources,
       'quizSources': quizSources,
-      'repetitionDays': repetitionDays.toList(),
-      'availableDays': availableDays,
+      'repetitionIntervals': repetitionIntervals,
       'themeColorValue': themeColorValue,
       'examDate': examDate?.toIso8601String(),
+      'readingPreference': readingPreference,
+      'isPremium': isPremium,
+      'trialStartDate': trialStartDate?.toIso8601String(),
+      'trialEndDate': trialEndDate?.toIso8601String(),
+      'subscriptionPlan': subscriptionPlan,
+      'subscriptionStartDate': subscriptionStartDate?.toIso8601String(),
+      'subscriptionEndDate': subscriptionEndDate?.toIso8601String(),
+      'manualPremium': manualPremium,
+      'manualPremiumReason': manualPremiumReason,
+      'purchasePlatform': purchasePlatform,
+      'lastValidationAt': lastValidationAt?.toIso8601String(),
     };
   }
 

@@ -18,6 +18,6 @@ class AppConstants {
     'Drishti IAS',
   ];
 
-  // Spaced Repetition Defaults
-  static const List<int> defaultRepetitionDays = [0, 1, 7, 30, 120, 365];
+  // Spaced Repetition Defaults (Used for legacy compatibility in some services)
+  static const List<int> defaultRepetitionDays = [1, 7, 30, 120, 300];
 }

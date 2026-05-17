@@ -1,11 +1,11 @@
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:html/parser.dart' as parser;
 import 'package:http/http.dart' as http;
 import 'package:upsc_ca_ui/shared/models/article_model.dart';
 import 'package:upsc_ca_ui/shared/models/quiz_model.dart';
 import 'package:upsc_ca_ui/shared/models/daily_study_data.dart';
-import 'package:upsc_ca_ui/core/utils/date_formatter.dart';
 
 class VajiramStudyService {
   static const String _baseUrl = "https://vajiramias.com";
@@ -107,22 +107,22 @@ class VajiramStudyService {
               break;
             }
 
-            String htmlContent;
-            try {
-              final Map<String, dynamic> jsonResponse = jsonDecode(res.body);
-              htmlContent = jsonResponse['content'] ?? '';
-            } catch (e) {
-              htmlContent = res.body;
-            }
-
-            if (htmlContent.isEmpty) break;
-
-            final parsed = _parse(htmlContent, seenIds, endpoint);
+            // Offload BOTH jsonDecode and parsing to background isolate
+            final parsed = await compute(_decodeAndParseStatic, {
+              'jsonBody': res.body,
+              'seenIds': seenIds.toList(),
+            });
+            
             if (parsed.isEmpty && page == 1) break;
             if (parsed.isEmpty) break;
 
+            AppLogger.d("[Vajiram] Page $page of $endpoint returned ${parsed.length} daily groups");
+
             parsed.forEach((date, items) {
               groupedArticles.putIfAbsent(date, () => []).addAll(items);
+              for (var item in items) {
+                seenIds.add(item.url!);
+              }
             });
 
             await Future.delayed(const Duration(milliseconds: 100));
@@ -190,19 +190,17 @@ class VajiramStudyService {
       throw Exception("LOGIN_REQUIRED");
     }
 
-    return parseQuizzesFromHtml(response.body);
+    return await compute(parseQuizzesFromHtmlStatic, response.body);
   }
 
-  List<DailyStudyData> parseQuizzesFromHtml(String html) {
+  static List<DailyStudyData> parseQuizzesFromHtmlStatic(String html) {
     final document = parser.parse(html);
 
     var cards = document.querySelectorAll('.mcq_card');
     if (cards.isEmpty) {
-      AppLogger.d("[Vajiram] .mcq_card not found, trying fallback selectors...");
       cards = document.querySelectorAll('a[href*="/daily-mcq/"][href*="test"]');
     }
     
-    AppLogger.d("[Vajiram] Found ${cards.length} potential quiz elements for parsing");
     final Map<String, List<QuizModel>> results = {};
 
     for (var card in cards) {
@@ -210,15 +208,14 @@ class VajiramStudyService {
 
       final title = titleEl.text.trim();
       final relativeLink = card.attributes['href'] ?? '';
-      final fullLink = relativeLink.startsWith('http') ? relativeLink : "$_baseUrl$relativeLink";
+      final fullLink = relativeLink.startsWith('http') ? relativeLink : "https://vajiramias.com$relativeLink";
 
       // Extract date from title e.g. "04 May 2026 MCQs Test"
       final dateMatch = RegExp(r'(\d{1,2}\s+[A-Z][a-z]+\s+\d{4})').firstMatch(title);
       if (dateMatch != null) {
         final dateStr = dateMatch.group(0)!;
-        final isoDate = _parseVajiramDate(dateStr);
+        final isoDate = _parseVajiramDateStatic(dateStr);
         if (isoDate != null) {
-          AppLogger.i("Found Vajiram Quiz: $isoDate | Title: $title");
           results.putIfAbsent(isoDate, () => []).add(QuizModel(
             source: 'Vajiram',
             title: title,
@@ -229,40 +226,53 @@ class VajiramStudyService {
       }
     }
 
-    AppLogger.d("[Vajiram] Final quiz parsing results: ${results.length} dates processed");
     return results.entries.map((e) => DailyStudyData(date: e.key, items: [], quizzes: e.value)).toList();
   }
 
-  Map<String, List<ArticleModel>> _parse(String html, Set<String> seenIds, String endpoint) {
+  static Map<String, List<ArticleModel>> _decodeAndParseStatic(Map<String, dynamic> params) {
+    final String jsonBody = params['jsonBody'];
+    final List<String> seenIdsList = params['seenIds'];
+    
+    String html;
+    try {
+      final Map<String, dynamic> jsonResponse = jsonDecode(jsonBody);
+      html = jsonResponse['content'] ?? '';
+    } catch (e) {
+      html = jsonBody;
+    }
+
+    if (html.isEmpty) return {};
+
+    return _parseStatic({
+      'html': html,
+      'seenIds': seenIdsList,
+    });
+  }
+
+  static Map<String, List<ArticleModel>> _parseStatic(Map<String, dynamic> params) {
+    final String html = params['html'];
+    final List<String> seenIdsList = params['seenIds'];
+    final Set<String> seenIds = Set.from(seenIdsList);
+
     final Map<String, List<ArticleModel>> results = {};
     final document = parser.parse(html);
     
-    // Support multiple container classes found across different endpoints
     final containers = document.querySelectorAll('.feed_item_box');
     
-    if (containers.isEmpty) {
-      AppLogger.d("[Vajiram] No containers found for $endpoint using standard selectors.");
-    }
-
     for (var container in containers) {
-      // Look for links that match either current affairs or general articles
       final link = container.querySelector(
           'a[href^="/current-affairs/"], '
               'a[href^="/article/"], '
               'a[href^="https://vajiramias.com/current-affairs/"], '
               'a[href^="https://vajiramias.com/article/"]'
       );
-      if (link == null) {
-        continue;
-      }
+      if (link == null) continue;
 
-      // 1. Find Title
       final title = container.querySelector('.feed_item_title')?.text.trim() ??
                     container.querySelector('.article_listing_title')?.text.trim() ??
                     link.querySelector('h2')?.text.trim() ??
                     link.text.trim();
       
-      // 2. Find Subtitle
       String? subtitle = container.querySelector('.feed_item_subtitle')?.text.trim() ??
                       container.querySelector('.article_listing_subtitle')?.text.trim() ??
                       container.querySelector('.subtitle')?.text.trim();
@@ -271,27 +281,20 @@ class VajiramStudyService {
         subtitle = null;
       }
       
-      final url = link.attributes['href'];
-      if (title.isEmpty || url == null) continue;
+      final urlString = link.attributes['href'];
+      if (title.isEmpty || urlString == null) continue;
 
-      final fullUrl = url.startsWith('http') ? url : '$_baseUrl$url';
+      final fullUrl = urlString.startsWith('http') ? urlString : 'https://vajiramias.com$urlString';
       
-      if (seenIds.contains(fullUrl)) {
-        // Already processed this URL in another endpoint/page
-        continue;
-      }
+      if (seenIds.contains(fullUrl)) continue;
 
-      // 3. Find Date
       String? dateStr;
-      // Search specifically in date-labeled containers first, then general text
       final dateElement = container.querySelector('.feed_item_date, .article_listing_date, .date, small');
       if (dateElement != null) {
         dateStr = dateElement.text.trim();
       } 
       
-      // If direct element check failed or returned something non-date-like, try regex
       if (dateStr == null || !dateStr.contains(RegExp(r'\d{4}'))) {
-        // Support "May 31, 2024" OR "31 May 2024" OR "25 Apr 2026"
         final dateMatch = RegExp(r'(\d{1,2}\s+[A-Z][a-z]+\s+\d{4})|([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})').firstMatch(container.text);
         if (dateMatch != null) {
           dateStr = dateMatch.group(0);
@@ -299,7 +302,7 @@ class VajiramStudyService {
       }
 
       if (dateStr != null) {
-        final date = _parseVajiramDate(dateStr);
+        final date = _parseVajiramDateStatic(dateStr);
         if (date != null) {
           seenIds.add(fullUrl);
           results.putIfAbsent(date, () => []).add(ArticleModel(
@@ -308,44 +311,27 @@ class VajiramStudyService {
             url: fullUrl,
             date: date,
           ));
-          AppLogger.d("[Vajiram] Parsed from $endpoint - Title: \"$title\", Date: \"$date\", Link: \"$fullUrl\"");
-        } else {
-          AppLogger.d("[Vajiram] Failed to parse date string: \"$dateStr\" in $endpoint");
         }
-      } else {
-        AppLogger.d("[Vajiram] No date found for article: \"$title\" in $endpoint");
       }
     }
     return results;
   }
 
-  String? _parseVajiramDate(String dateStr) {
+  static String? _parseVajiramDateStatic(String dateStr) {
     try {
-      // Clean up: "May 31, 2024" or "31 May 2024"
       final cleanStr = dateStr.replaceAll(',', '').replaceAll(RegExp(r'\s+'), ' ').trim();
       final parts = cleanStr.split(' ');
       if (parts.length < 3) return null;
       
       final monthMap = {
-        'January': 1, 'Jan': 1,
-        'February': 2, 'Feb': 2,
-        'March': 3, 'Mar': 3,
-        'April': 4, 'Apr': 4,
-        'May': 5,
-        'June': 6, 'Jun': 6,
-        'July': 7, 'Jul': 7,
-        'August': 8, 'Aug': 8,
-        'September': 9, 'Sep': 9,
-        'October': 10, 'Oct': 10,
-        'November': 11, 'Nov': 11,
-        'December': 12, 'Dec': 12
+        'January': 1, 'Jan': 1, 'February': 2, 'Feb': 2, 'March': 3, 'Mar': 3,
+        'April': 4, 'Apr': 4, 'May': 5, 'June': 6, 'Jun': 6, 'July': 7, 'Jul': 7,
+        'August': 8, 'Aug': 8, 'September': 9, 'Sep': 9, 'October': 10, 'Oct': 10,
+        'November': 11, 'Nov': 11, 'December': 12, 'Dec': 12
       };
       
-      int? day;
-      int? month;
-      int? year;
+      int? day, month, year;
 
-      // Try to identify which part is which
       for (var part in parts) {
         if (monthMap.containsKey(part)) {
           month = monthMap[part];
@@ -359,13 +345,11 @@ class VajiramStudyService {
       if (month == null || day == null || year == null) return null;
       
       final dt = DateTime(year, month, day);
-      return DateFormatter.toIso(dt);
+      return "${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}";
     } catch (e) {
       return null;
     }
   }
-
-
 }
 
 

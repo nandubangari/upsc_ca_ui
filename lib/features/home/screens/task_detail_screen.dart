@@ -7,10 +7,6 @@ import 'package:upsc_ca_ui/shared/models/article_model.dart';
 import 'package:upsc_ca_ui/shared/widgets/section_header.dart';
 import 'package:upsc_ca_ui/shared/widgets/article_card.dart';
 import 'package:upsc_ca_ui/shared/widgets/quiz_card.dart';
-import 'package:upsc_ca_ui/shared/widgets/gradient_background.dart';
-
-
-
 
 import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
 
@@ -34,49 +30,46 @@ class TaskDetailScreen extends StatelessWidget {
         final sortedArticles = List<ArticleModel>.from(currentTask.articles)
           ..sort((a, b) => a.isCompleted == b.isCompleted ? 0 : (a.isCompleted ? 1 : -1));
 
-        return GradientBackground(
-          child: Scaffold(
+        return Scaffold(
+          appBar: AppBar(
             backgroundColor: Colors.transparent,
-            appBar: AppBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              leading: IconButton(
-                icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : Colors.black87, size: 20),
-                onPressed: () => Navigator.pop(context),
+            elevation: 0,
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : Colors.black87, size: 20),
+              onPressed: () => Navigator.pop(context),
+            ),
+            actions: [
+              IconButton(
+                icon: Icon(Icons.add_rounded, color: isDark ? Colors.white : Colors.black87, size: 24),
+                onPressed: () => _showAddTaskDialog(context, provider, currentTask.date),
               ),
-              actions: [
-                IconButton(
-                  icon: Icon(Icons.add_rounded, color: isDark ? Colors.white : Colors.black87, size: 24),
-                  onPressed: () => _showAddTaskDialog(context, provider, currentTask.date),
-                ),
-                const SizedBox(width: 8),
-              ],
-              centerTitle: true,
-              title: Text(
-                currentTask.date,
-                style: TextStyle(
-                  color: isDark ? Colors.white : Colors.black87,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.5,
-                ),
+              const SizedBox(width: 8),
+            ],
+            centerTitle: true,
+            title: Text(
+              currentTask.date,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.5,
               ),
             ),
-            body: LayoutBuilder(
-              builder: (context, constraints) {
-                final isTablet = constraints.maxWidth >= 600;
-                final isLandscape = constraints.maxWidth > constraints.maxHeight && !isTablet;
+          ),
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              final isTablet = constraints.maxWidth >= 600;
+              final isLandscape = constraints.maxWidth > constraints.maxHeight && !isTablet;
 
-                return CustomScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  slivers: isTablet
-                      ? _buildTabletSlivers(context, sortedQuizzes, sortedArticles, currentTask)
-                      : isLandscape
-                          ? _buildLandscapeSlivers(context, sortedQuizzes, sortedArticles, currentTask)
-                          : _buildPortraitSlivers(context, sortedQuizzes, sortedArticles, currentTask),
-                );
-              },
-            ),
+              return CustomScrollView(
+                physics: const BouncingScrollPhysics(),
+                slivers: isTablet
+                    ? _buildTabletSlivers(context, sortedQuizzes, sortedArticles, currentTask)
+                    : isLandscape
+                        ? _buildLandscapeSlivers(context, sortedQuizzes, sortedArticles, currentTask)
+                        : _buildPortraitSlivers(context, sortedQuizzes, sortedArticles, currentTask),
+              );
+            },
           ),
         );
       },
@@ -101,6 +94,7 @@ class TaskDetailScreen extends StatelessWidget {
       sliver: SliverToBoxAdapter(child: SectionHeader(title: 'ARTICLES')),
     ));
 
+    int articleCount = 0;
     for (var entry in groupedArticles.entries) {
       slivers.add(SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -120,15 +114,20 @@ class TaskDetailScreen extends StatelessWidget {
         ),
       ));
       
+      final currentSourceArticles = entry.value;
       slivers.add(SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         sliver: SliverList(
           delegate: SliverChildBuilderDelegate(
-            (context, index) => ArticleCard(article: entry.value[index], task: currentTask),
-            childCount: entry.value.length,
+            (context, index) {
+              final isFree = articleCount + index < 2;
+              return ArticleCard(article: currentSourceArticles[index], task: currentTask, isFree: isFree);
+            },
+            childCount: currentSourceArticles.length,
           ),
         ),
       ));
+      articleCount += currentSourceArticles.length;
     }
 
     slivers.add(const SliverPadding(
@@ -168,6 +167,7 @@ class TaskDetailScreen extends StatelessWidget {
 
     // Articles Column
     leftSide.add((_) => const SectionHeader(title: 'ARTICLES'));
+    int articleCount = 0;
     for (var entry in groupedArticles.entries) {
       leftSide.add((context) => Padding(
         padding: const EdgeInsets.only(left: 4, top: 8, bottom: 8),
@@ -183,7 +183,9 @@ class TaskDetailScreen extends StatelessWidget {
       ));
       
       for (var a in entry.value) {
-        leftSide.add((_) => ArticleCard(article: a, task: currentTask));
+        final isFree = articleCount < 2;
+        leftSide.add((_) => ArticleCard(article: a, task: currentTask, isFree: isFree));
+        articleCount++;
       }
       leftSide.add((_) => const SizedBox(height: 16));
     }
@@ -296,36 +298,3 @@ class TaskDetailScreen extends StatelessWidget {
     );
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

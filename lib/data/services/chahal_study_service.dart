@@ -47,7 +47,7 @@ class ChahalStudyService {
       if (quizDate.year == year && quizDate.month == month) {
         AppLogger.d("✅ [Chahal] Found Quiz: $isoDate | Title: ${data['title']} | Link: ${data['url']}");
         groupedQuizzes.putIfAbsent(isoDate, () => []).add(QuizModel(
-          source: 'Chahal Academy',
+          source: 'chahal_academy',
           title: data['title'],
           url: data['url'],
           isCompleted: false,
@@ -79,7 +79,7 @@ class ChahalStudyService {
       if (quizDate.year == year && quizDate.month == month) {
         AppLogger.d("✅ [Chahal] Found Quiz (Forward): $isoDate | Title: ${data['title']} | Link: ${data['url']}");
         groupedQuizzes.putIfAbsent(isoDate, () => []).add(QuizModel(
-          source: 'Chahal Academy',
+          source: 'chahal_academy',
           title: data['title'],
           url: data['url'],
           isCompleted: false,
