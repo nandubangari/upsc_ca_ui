@@ -13,6 +13,7 @@ import 'package:upsc_ca_ui/data/repositories/auth_repository.dart';
 import 'package:upsc_ca_ui/core/config/app_constants.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 import 'package:upsc_ca_ui/features/home/screens/dashboard_screen.dart';
+import 'package:upsc_ca_ui/core/utils/date_formatter.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key});
@@ -33,6 +34,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   Map<String, bool> _quizSources = {};
   List<int> _repetitionIntervals = [1, 7, 30, 120, 300];
   String _readingPreference = 'internal_browser';
+  
+  // Subscription Info
+  ProfileData? _fullProfile;
+  String? _subscriptionPlan;
+  DateTime? _subscriptionStart;
+  DateTime? _subscriptionEnd;
+  bool _isPremium = false;
 
   bool _isDataLoading = true;
 
@@ -53,6 +61,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       ProfileData? cloudData;
       if (user != null) {
         cloudData = await _profileService.fetchProfileFromCloud(user.uid);
+        if (cloudData != null) {
+          // Update local Isar cache to stay in sync with Firestore
+          await _profileService.saveProfile(cloudData);
+        }
       }
       
       final ProfileData localData = await _profileService.fetchProfileFromJson();
@@ -68,11 +80,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           }
 
           final activeData = cloudData ?? localData;
+          _fullProfile = activeData;
           _joinedAt = activeData.joinedAt;
           _startDate = activeData.startDate;
           _examDate = activeData.examDate;
           _repetitionIntervals = activeData.repetitionIntervals;
           _readingPreference = activeData.readingPreference;
+
+          // Subscription Data
+          _isPremium = activeData.isPremium;
+          _subscriptionPlan = activeData.subscriptionPlan ?? (activeData.trialEndDate != null ? 'Free Trial' : 'Free');
+          _subscriptionStart = activeData.subscriptionStartDate ?? activeData.trialStartDate;
+          _subscriptionEnd = activeData.subscriptionEndDate ?? activeData.trialEndDate;
           
           _articleSources = {};
           for (var source in AppConstants.defaultArticleSources) {
@@ -132,6 +151,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   _buildThemeColorCard(context),
                   const SizedBox(height: 20),
                   _buildReadingPreferenceCard(context),
+                  const SizedBox(height: 20),
+                  _buildSubscriptionCard(context),
                   const SizedBox(height: 20),
                   _buildRepetitionIntervalsCard(context),
                   const SizedBox(height: 20),
@@ -482,6 +503,164 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     );
   }
 
+  Widget _buildSubscriptionCard(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    int? daysLeft;
+    if (_subscriptionEnd != null) {
+      daysLeft = _subscriptionEnd!.difference(DateTime.now()).inDays;
+      if (daysLeft < 0) daysLeft = 0;
+    }
+
+    return _buildModernCard(
+      title: 'Subscription',
+      icon: Icons.card_membership_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'CURRENT PLAN',
+                    style: TextStyle(
+                      color: isDark ? Colors.white24 : Colors.black26,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        _subscriptionPlan?.toUpperCase() ?? 'FREE',
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      if (daysLeft != null && !_isPremium && _subscriptionPlan == 'Free Trial') ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: primaryColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '$daysLeft DAYS LEFT',
+                            style: TextStyle(
+                              color: primaryColor,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _isPremium ? Colors.amber.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _isPremium ? Colors.amber.withValues(alpha: 0.5) : Colors.grey.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _isPremium ? Icons.star_rounded : Icons.star_outline_rounded,
+                      size: 14,
+                      color: _isPremium ? Colors.amber : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _isPremium ? 'PREMIUM' : 'FREE',
+                      style: TextStyle(
+                        color: _isPremium ? Colors.amber : Colors.grey,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'START DATE',
+                      style: TextStyle(
+                        color: isDark ? Colors.white24 : Colors.black26,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _subscriptionStart != null 
+                        ? DateFormatter.isoToAppDate(DateFormatter.toIso(_subscriptionStart!))
+                        : 'N/A',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black87,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _isPremium ? 'EXPIRY DATE' : 'TRIAL ENDS',
+                      style: TextStyle(
+                        color: isDark ? Colors.white24 : Colors.black26,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _subscriptionEnd != null 
+                        ? DateFormatter.isoToAppDate(DateFormatter.toIso(_subscriptionEnd!))
+                        : 'N/A',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black87,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRepetitionIntervalsCard(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).colorScheme.primary;
@@ -671,10 +850,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         
         final user = _authRepository.currentUser;
         if (user != null) {
-          final now = DateTime.now();
-          // If first time joining, set joinedAt to now and initialize trial
-          final trialStart = _joinedAt;
-          final trialEnd = trialStart.add(const Duration(days: 90));
+          // Preserve existing subscription data from _fullProfile
+          final trialStart = _fullProfile?.trialStartDate ?? _joinedAt;
+          final trialEnd = _fullProfile?.trialEndDate ?? trialStart.add(const Duration(days: 90));
 
           final profile = ProfileData(
             name: _nameController.text,
@@ -686,9 +864,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             repetitionIntervals: _repetitionIntervals,
             readingPreference: _readingPreference,
             themeColorValue: themeProvider.primaryColor.toARGB32(),
-            isPremium: true, // Default to true during trial
+            
+            // Merged subscription data
+            isPremium: _fullProfile?.isPremium ?? true, // Default true for trial
             trialStartDate: trialStart,
             trialEndDate: trialEnd,
+            subscriptionPlan: _fullProfile?.subscriptionPlan,
+            subscriptionStartDate: _fullProfile?.subscriptionStartDate,
+            subscriptionEndDate: _fullProfile?.subscriptionEndDate,
+            manualPremium: _fullProfile?.manualPremium ?? false,
+            manualPremiumReason: _fullProfile?.manualPremiumReason,
+            purchasePlatform: _fullProfile?.purchasePlatform,
+            lastValidationAt: _fullProfile?.lastValidationAt,
           );
           await _profileService.saveProfileToCloud(user.uid, profile);
         }

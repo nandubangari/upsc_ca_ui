@@ -25,12 +25,12 @@ class SubscriptionProvider with ChangeNotifier {
     await refreshStatus();
   }
 
-  Future<void> refreshStatus() async {
+  Future<void> refreshStatus({bool forceCloud = false}) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      _profile = await _profileService.getProfile();
+      _profile = await _profileService.getProfile(forceCloudFetch: forceCloud);
       _accessLevel = _subscriptionService.checkAccess(_profile);
     } catch (e) {
       AppLogger.e("Error refreshing subscription status", e);
