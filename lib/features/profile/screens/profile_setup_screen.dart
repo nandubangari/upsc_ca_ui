@@ -862,6 +862,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         if (user != null) {
           // Preserve existing subscription data from _fullProfile
           final trialStart = _fullProfile?.trialStartDate ?? _joinedAt;
+          // IMPORTANT: Only initialize trialEndDate if it's missing. 
+          // Defaulting to 90 days from "now" during update would extend the trial indefinitely.
           final trialEnd = _fullProfile?.trialEndDate ?? trialStart.add(const Duration(days: 90));
 
           final profile = ProfileData(
@@ -876,7 +878,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             themeColorValue: themeProvider.primaryColor.toARGB32(),
             
             // Merged subscription data
-            isPremium: _fullProfile?.isPremium ?? true, // Default true for trial
+            isPremium: _fullProfile?.isPremium ?? false, // Fix: Default to false
             trialStartDate: trialStart,
             trialEndDate: trialEnd,
             subscriptionPlan: _fullProfile?.subscriptionPlan,

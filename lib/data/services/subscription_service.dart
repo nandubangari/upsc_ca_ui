@@ -1,4 +1,5 @@
 import 'package:upsc_ca_ui/shared/models/profile_data.dart';
+import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 
 enum AccessLevel { full, limited }
 
@@ -16,22 +17,29 @@ class SubscriptionService {
 
     final now = DateTime.now();
 
+    // Debug logging
+    AppLogger.d("AccessCheck: ${profile.name} | TrialEnd: ${profile.trialEndDate} | SubEnd: ${profile.subscriptionEndDate}");
+
     // 1. Check manualPremium (Overwrites everything)
     if (profile.manualPremium) {
+      AppLogger.d("Access: FULL (manualPremium)");
       return AccessLevel.full;
     }
 
     // 2. Check active paid subscription
     if (profile.subscriptionEndDate != null && profile.subscriptionEndDate!.isAfter(now)) {
+      AppLogger.d("Access: FULL (Active Subscription)");
       return AccessLevel.full;
     }
 
     // 3. Check free trial validity (90 days)
     if (profile.trialEndDate != null && profile.trialEndDate!.isAfter(now)) {
+      AppLogger.d("Access: FULL (Active Trial)");
       return AccessLevel.full;
     }
 
     // 4. Default: Lock content
+    AppLogger.d("Access: LIMITED (Expired or No Access)");
     return AccessLevel.limited;
   }
 

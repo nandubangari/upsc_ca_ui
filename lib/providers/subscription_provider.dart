@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
@@ -71,11 +72,53 @@ class SubscriptionProvider with ChangeNotifier {
     try {
       _profile = await _profileService.getProfile(forceCloudFetch: forceCloud);
       _accessLevel = _subscriptionService.checkAccess(_profile);
+      AppLogger.d("Subscription Status: $_accessLevel | Premium: $isPremium");
+
+      // 🟢 FRESHNESS CHECK: If trial expired and we haven't validated recently
+      if (_accessLevel == AccessLevel.limited && _shouldCheckFreshness(_profile)) {
+        unawaited(validateWithGooglePlay());
+      }
     } catch (e) {
       AppLogger.e("Error refreshing subscription status", e);
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  bool _shouldCheckFreshness(ProfileData? profile) {
+    if (profile == null) return false;
+    final now = DateTime.now();
+    
+    // 1. Check if trial is expired
+    final isTrialExpired = profile.trialEndDate != null && profile.trialEndDate!.isBefore(now);
+    
+    // 2. Check if we already have an active subscription (no need to check freshness if we already know it's active)
+    final hasActiveSub = profile.subscriptionEndDate != null && profile.subscriptionEndDate!.isAfter(now);
+    
+    if (!isTrialExpired || hasActiveSub) return false;
+    
+    // 3. Throttle: Don't check more than once every 24 hours to stay within API limits and avoid battery drain
+    final lastCheck = profile.lastValidationAt ?? DateTime(2000);
+    return now.difference(lastCheck).inHours >= 24;
+  }
+
+  Future<void> validateWithGooglePlay() async {
+    AppLogger.d("Background: Validating subscription freshness with Google Play...");
+    try {
+      // restorePurchases() triggers queryPurchasesAsync logic internally in the IAP package
+      // which fetches latest receipts from Google Servers.
+      await restorePurchases(silent: true);
+      
+      // Update validation timestamp to throttle next check
+      if (_profile != null) {
+        final updatedProfile = _profile!.copyWith(lastValidationAt: DateTime.now());
+        await _profileService.saveProfile(updatedProfile);
+        _profile = updatedProfile;
+        notifyListeners(); // 🟢 Ensure UI updates with new validation timestamp
+      }
+    } catch (e) {
+      AppLogger.e("Freshness validation failed", e);
     }
   }
 
