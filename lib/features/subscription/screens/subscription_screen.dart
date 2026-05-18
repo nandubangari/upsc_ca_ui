@@ -1,7 +1,10 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:provider/provider.dart';
+import 'package:upsc_ca_ui/core/constants/iap_constants.dart';
 import 'package:upsc_ca_ui/providers/subscription_provider.dart';
+import 'package:upsc_ca_ui/features/subscription/screens/terms_and_conditions_screen.dart';
 import 'package:upsc_ca_ui/shared/widgets/blur_button.dart';
 
 class SubscriptionScreen extends StatefulWidget {
@@ -16,51 +19,85 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _agreeToTerms = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Fetch products when screen loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<SubscriptionProvider>().fetchProducts();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
-      body: Stack(
-        children: [
-          // Background Gradient
-          _buildBackground(primaryColor),
+      body: Consumer<SubscriptionProvider>(
+        builder: (context, provider, child) {
+          // React to global premium state
+          if (provider.isPremium) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && Navigator.canPop(context)) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Subscription active! Enjoy Premium features.')),
+                );
+              }
+            });
+          }
 
-          // Main Content
-          SafeArea(
-            child: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                _buildHeader(context),
-                _buildPlans(context, primaryColor),
-                _buildBenefits(context),
-                _buildTermsSection(context, primaryColor),
-                _buildActionButton(context, primaryColor),
-                const SliverToBoxAdapter(child: SizedBox(height: 40)),
-              ],
-            ),
-          ),
+          if (provider.errorMessage != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(provider.errorMessage!)),
+                );
+              }
+            });
+          }
 
-          // Close Button
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            right: 20,
-            child: BlurButton(
-              icon: Icons.close_rounded,
-              onTap: () => Navigator.pop(context),
-            ),
-          ),
-        ],
+          return Stack(
+            children: [
+              // Background Gradient
+              _buildBackground(primaryColor),
+
+              // Main Content
+              SafeArea(
+                child: CustomScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    _buildHeader(context),
+                    _buildPlans(context, primaryColor, provider),
+                    _buildBenefits(context),
+                    _buildTermsSection(context, primaryColor),
+                    _buildActionButton(context, primaryColor, provider),
+                    const SliverToBoxAdapter(child: SizedBox(height: 40)),
+                  ],
+                ),
+              ),
+
+              // Close Button
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 10,
+                right: 20,
+                child: BlurButton(
+                  icon: Icons.close_rounded,
+                  onTap: () => Navigator.pop(context),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _buildBackground(Color primaryColor) {
     return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
+      decoration: const BoxDecoration(
+        color: Color(0xFF0F172A),
         image: DecorationImage(
-          image: const NetworkImage('https://www.transparenttextures.com/patterns/asfalt-dark.png'),
+          image: NetworkImage('https://www.transparenttextures.com/patterns/asfalt-dark.png'),
           repeat: ImageRepeat.repeat,
           opacity: 0.1,
         ),
@@ -129,38 +166,55 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  Widget _buildPlans(BuildContext context, Color primaryColor) {
+  Widget _buildPlans(BuildContext context, Color primaryColor, SubscriptionProvider provider) {
+    if (provider.products.isEmpty && provider.isLoading) {
+      return const SliverToBoxAdapter(
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (provider.products.isEmpty) {
+      return const SliverToBoxAdapter(
+        child: Center(child: Text("No products available", style: TextStyle(color: Colors.white))),
+      );
+    }
+
+    // Sort products based on our order
+    final monthly = provider.products.where((p) => p.id == IapConstants.monthlyPremium).firstOrNull;
+    final quarterly = provider.products.where((p) => p.id == IapConstants.quarterlyPremium).firstOrNull;
+    final yearly = provider.products.where((p) => p.id == IapConstants.annualPremium).firstOrNull;
+
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
           children: [
-            _buildPlanCard(
-              id: 'monthly',
-              title: 'Monthly',
-              price: '₹299',
-              subtitle: 'Billed monthly',
-              primaryColor: primaryColor,
-            ),
+            if (monthly != null)
+              _buildPlanCard(
+                id: 'monthly',
+                product: monthly,
+                subtitle: 'Billed monthly',
+                primaryColor: primaryColor,
+              ),
             const SizedBox(height: 16),
-            _buildPlanCard(
-              id: 'quarterly',
-              title: 'Quarterly',
-              price: '₹599',
-              subtitle: 'Billed every 3 months',
-              badge: 'POPULAR',
-              primaryColor: primaryColor,
-            ),
+            if (quarterly != null)
+              _buildPlanCard(
+                id: 'quarterly',
+                product: quarterly,
+                subtitle: 'Billed every 3 months',
+                badge: 'POPULAR',
+                primaryColor: primaryColor,
+              ),
             const SizedBox(height: 16),
-            _buildPlanCard(
-              id: 'yearly',
-              title: 'Yearly',
-              price: '₹1999',
-              subtitle: 'Only ₹167/month',
-              badge: 'BEST VALUE',
-              primaryColor: primaryColor,
-              highlight: true,
-            ),
+            if (yearly != null)
+              _buildPlanCard(
+                id: 'yearly',
+                product: yearly,
+                subtitle: 'Save up to 40%',
+                badge: 'BEST VALUE',
+                primaryColor: primaryColor,
+                highlight: true,
+              ),
           ],
         ),
       ),
@@ -169,8 +223,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildPlanCard({
     required String id,
-    required String title,
-    required String price,
+    required ProductDetails product,
     required String subtitle,
     String? badge,
     required Color primaryColor,
@@ -221,13 +274,18 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     const SizedBox(height: 8),
                   ],
                   Text(
-                    title,
+                    product.title.split('(')[0].trim(), // Clean title
                     style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
                   ),
                   Text(
                     subtitle,
                     style: const TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w500),
                   ),
+                  if (id == 'monthly')
+                    const Text(
+                      'Renews automatically. Cancel anytime.',
+                      style: TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.w400),
+                    ),
                 ],
               ),
             ),
@@ -235,7 +293,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  price,
+                  product.price,
                   style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
                 ),
                 Icon(
@@ -253,10 +311,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildBenefits(BuildContext context) {
     final benefits = [
-      {'icon': Icons.article_rounded, 'text': 'Unlimited Premium Articles'},
-      {'icon': Icons.quiz_rounded, 'text': 'Full Access to Daily Quizzes'},
-      {'icon': Icons.psychology_rounded, 'text': 'AI-Powered Study Insights'},
-      {'icon': Icons.analytics_rounded, 'text': 'Advanced Preparation Analytics'},
+      {'icon': Icons.article_rounded, 'text': 'Daily curated articles from top UPSC sources'},
+      {'icon': Icons.quiz_rounded, 'text': 'Daily quiz links from leading coaching institutes'},
+      {'icon': Icons.psychology_rounded, 'text': 'Smart spaced repetition reminders'},
+      {'icon': Icons.analytics_rounded, 'text': 'Reading progress & revision tracking'},
     ];
 
     return SliverToBoxAdapter(
@@ -296,18 +354,24 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     padding: EdgeInsets.only(bottom: 16),
                     child: Text(
                       '• Auto-renewal: Subscriptions renew automatically unless cancelled 24h before end date.\n'
-                      '• Cancellation: Manage in your App Store settings.\n'
-                      '• Refund: Non-refundable as per platform policies.\n'
-                      '• Trial: 3-month trial available for first-time users only.',
+                      '• Billing: Managed through Google Play. ₹200/month recurring charge.\n'
+                      '• Refunds: All payments are final and non-refundable.\n'
+                      '• Aggregator: This app is a content aggregation and study tool.',
                       style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.5),
                     ),
                   ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      TextButton(onPressed: () {}, child: const Text('Privacy Policy', style: TextStyle(fontSize: 12))),
-                      const Text('|', style: TextStyle(color: Colors.white10)),
-                      TextButton(onPressed: () {}, child: const Text('Terms of Service', style: TextStyle(fontSize: 12))),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const TermsAndConditionsScreen()),
+                          );
+                        }, 
+                        child: const Text('View Full Terms', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800))
+                      ),
                     ],
                   ),
                 ],
@@ -334,7 +398,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  Widget _buildActionButton(BuildContext context, Color primaryColor) {
+  Widget _buildActionButton(BuildContext context, Color primaryColor, SubscriptionProvider provider) {
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -358,47 +422,35 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            Consumer<SubscriptionProvider>(
-              builder: (context, provider, _) {
-                return GestureDetector(
-                  onTap: (_agreeToTerms && !provider.isLoading) 
-                      ? () async {
-                          final success = await provider.purchasePlan(_selectedPlan);
-                          if (success && mounted) {
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Subscription activated successfully!')),
-                            );
-                          }
-                        }
-                      : null,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 200),
-                    opacity: _agreeToTerms ? 1.0 : 0.5,
-                    child: Container(
-                      width: double.infinity,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(colors: [primaryColor, primaryColor.withValues(alpha: 0.8)]),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          if (_agreeToTerms)
-                            BoxShadow(color: primaryColor.withValues(alpha: 0.4), blurRadius: 20, offset: const Offset(0, 10)),
-                        ],
-                      ),
-                      child: Center(
-                        child: provider.isLoading 
-                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                          : const Text('ACTIVATE PREMIUM', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
-                      ),
-                    ),
+            GestureDetector(
+              onTap: (_agreeToTerms && !provider.isLoading && provider.products.isNotEmpty) 
+                  ? () => provider.purchasePlan(_selectedPlan)
+                  : null,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _agreeToTerms ? 1.0 : 0.5,
+                child: Container(
+                  width: double.infinity,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [primaryColor, primaryColor.withValues(alpha: 0.8)]),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      if (_agreeToTerms)
+                        BoxShadow(color: primaryColor.withValues(alpha: 0.4), blurRadius: 20, offset: const Offset(0, 10)),
+                    ],
                   ),
-                );
-              },
+                  child: Center(
+                    child: provider.isLoading 
+                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('ACTIVATE PREMIUM', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+                  ),
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             TextButton(
-              onPressed: () => context.read<SubscriptionProvider>().restorePurchases(),
+              onPressed: () => provider.restorePurchases(),
               child: const Text('Restore Purchase', style: TextStyle(color: Colors.white38, fontWeight: FontWeight.w700)),
             ),
           ],

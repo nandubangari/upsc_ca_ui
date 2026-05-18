@@ -6,12 +6,8 @@ import 'package:upsc_ca_ui/shared/models/daily_study_data.dart';
 import 'package:upsc_ca_ui/core/utils/date_formatter.dart';
 
 class ChahalStudyService {
-  static const String _baseUrl = "https://chahalacademy.com/current-affairs-quiz/04-may-2026";
+  static const String _baseUrl = "https://chahalacademy.com/daily-current-affairs-quiz";
   
-  // A known ID to start the search from. This should be updated periodically or detected.
-  // For now, let's assume 2024 as per the user's provided logic snippet.
-  static const int _defaultKnownId = 2024;
-
   Future<List<DailyStudyData>> fetch({
     required int year,
     required int month,
@@ -20,73 +16,60 @@ class ChahalStudyService {
   }) async {
     final Map<String, List<QuizModel>> groupedQuizzes = {};
     
-    // We'll use the smart extraction logic provided by the user
-    // However, the base fetch() in our system is month-based.
-    // For Chahal (ID based), we'll crawl backwards and forwards from the known ID.
+    onStatusUpdate?.call('Fetching Chahal Academy quiz list...');
     
-    final knownId = _defaultKnownId; 
-    final targetStartDate = startDate ?? DateTime(year, month, 1);
-    
-    onStatusUpdate?.call('Starting Chahal Academy extraction...');
-    
-    /// 🔽 STEP 1: BACKWARD SEARCH
-    int id = knownId;
-    while (true) {
-      onStatusUpdate?.call('Checking Chahal ID $id (Backward)...');
-      final data = await _fetchAndParse(id);
-      if (data == null) break;
+    try {
+      final response = await http.get(
+        Uri.parse(_baseUrl),
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+      );
 
-      final quizDate = data['dateObj'] as DateTime;
-      if (quizDate.isBefore(targetStartDate)) {
-        AppLogger.d("DEBUG: [Chahal] Reached before target start date ($targetStartDate) -> STOP backward");
-        break;
+      if (response.statusCode != 200) {
+        AppLogger.e("[Chahal] Failed to fetch quiz list. Status: ${response.statusCode}");
+        return [];
       }
 
-      final String isoDate = DateFormatter.toIso(quizDate);
-      // Only include if it matches the requested year/month
-      if (quizDate.year == year && quizDate.month == month) {
-        AppLogger.d("✅ [Chahal] Found Quiz: $isoDate | Title: ${data['title']} | Link: ${data['url']}");
-        groupedQuizzes.putIfAbsent(isoDate, () => []).add(QuizModel(
-          source: 'chahal_academy',
-          title: data['title'],
-          url: data['url'],
-          isCompleted: false,
-        ));
-      }
-
-      id--; 
-    }
-
-    /// 🔼 STEP 2: FORWARD SEARCH
-    id = knownId + 1;
-    while (true) {
-      onStatusUpdate?.call('Checking Chahal ID $id (Forward)...');
-      final urlStr = "$_baseUrl/$id";
-      final response = await http.get(Uri.parse(urlStr));
-
-      // Stop if redirected to homepage
-      if (response.request?.url.toString() == "https://chahalacademy.com/") {
-        AppLogger.d("DEBUG: [Chahal] Redirected to homepage -> STOP forward at ID $id");
-        break;
-      }
-
-      final data = _parseHtml(response.body, id);
-      if (data == null) break;
-
-      final quizDate = data['dateObj'] as DateTime;
-      final String isoDate = DateFormatter.toIso(quizDate);
+      final document = parser.parse(response.body);
+      final links = document.querySelectorAll('a');
       
-      if (quizDate.year == year && quizDate.month == month) {
-        AppLogger.d("✅ [Chahal] Found Quiz (Forward): $isoDate | Title: ${data['title']} | Link: ${data['url']}");
+      int foundCount = 0;
+
+      for (var link in links) {
+        final title = link.text.trim();
+        final href = link.attributes['href'];
+
+        if (href == null || title.isEmpty) continue;
+        if (!title.toLowerCase().contains("daily current affairs quiz with answers")) continue;
+
+        final dateObj = _parseDateFromTitle(title);
+        if (dateObj == null) continue;
+
+        // Filter by requested year and month
+        if (dateObj.year != year || dateObj.month != month) continue;
+
+        // Optional: Filter by startDate
+        if (startDate != null && dateObj.isBefore(DateTime(startDate.year, startDate.month, startDate.day))) {
+          continue;
+        }
+
+        final String isoDate = DateFormatter.toIso(dateObj);
+        final fullUrl = href.startsWith('http') ? href : "https://chahalacademy.com${href.startsWith('/') ? '' : '/'}$href";
+
         groupedQuizzes.putIfAbsent(isoDate, () => []).add(QuizModel(
-          source: 'chahal_academy',
-          title: data['title'],
-          url: data['url'],
+          source: 'Chahal Academy',
+          title: title,
+          url: fullUrl,
           isCompleted: false,
         ));
+        foundCount++;
       }
 
-      id++; 
+      AppLogger.d("✅ [Chahal] Found $foundCount quizzes for $year-$month");
+
+    } catch (e) {
+      AppLogger.e("[Chahal] Error fetching quizzes", e);
     }
 
     return groupedQuizzes.entries.map((e) => DailyStudyData(
@@ -96,55 +79,15 @@ class ChahalStudyService {
     )).toList();
   }
 
-  Future<Map<String, dynamic>?> _fetchAndParse(int id) async {
+  DateTime? _parseDateFromTitle(String text) {
+    // Look for date like "18 May 2026" or "18-May-2026"
+    final match = RegExp(r'(\d{1,2})[-\s]([A-Za-z]{3,})[-\s](\d{4})').firstMatch(text);
+    if (match == null) return null;
+
     try {
-      final response = await http.get(Uri.parse("$_baseUrl/$id"));
-      if (response.statusCode != 200 || response.body.contains("Page not found")) {
-        return null;
-      }
-      return _parseHtml(response.body, id);
-    } catch (e) {
-      AppLogger.d("DEBUG: [Chahal] Error fetching ID $id: $e");
-      return null;
-    }
-  }
-
-  Map<String, dynamic>? _parseHtml(String html, int id) {
-    final document = parser.parse(html);
-    final titleEl = document.querySelector('.page-title h1');
-    if (titleEl == null) return null;
-
-    final title = titleEl.text.trim();
-    final dateStr = _extractDateFromTitle(title);
-    if (dateStr == null) return null;
-
-    final dateObj = _parseDate(dateStr);
-    if (dateObj == null) return null;
-
-    return {
-      "id": id,
-      "url": "$_baseUrl/$id",
-      "title": title,
-      "date": dateStr,
-      "dateObj": dateObj,
-    };
-  }
-
-  String? _extractDateFromTitle(String text) {
-    // Look for date like 01-May-26 or 01-May-2026
-    final match = RegExp(r'\d{2}-[A-Za-z]{3}-\d{2,4}').firstMatch(text);
-    return match?.group(0);
-  }
-
-  DateTime? _parseDate(String dateStr) {
-    try {
-      final parts = dateStr.split('-');
-      if (parts.length < 3) return null;
-
-      final day = int.parse(parts[0]);
-      final monthStr = parts[1].toLowerCase().substring(0, 3);
-      final yearPart = int.parse(parts[2]);
-      final year = yearPart < 100 ? 2000 + yearPart : yearPart;
+      final day = int.parse(match.group(1)!);
+      final monthStr = match.group(2)!.toLowerCase().substring(0, 3);
+      final year = int.parse(match.group(3)!);
 
       const months = {
         "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
@@ -158,5 +101,3 @@ class ChahalStudyService {
     }
   }
 }
-
-

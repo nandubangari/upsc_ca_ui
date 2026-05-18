@@ -100,4 +100,48 @@ class ProfileData {
   Map<String, dynamic> toFirestore() {
     return toJson();
   }
+
+  ProfileData copyWith({
+    String? name,
+    DateTime? joinedAt,
+    DateTime? startDate,
+    Map<String, bool>? articleSources,
+    Map<String, bool>? quizSources,
+    List<int>? repetitionIntervals,
+    int? themeColorValue,
+    DateTime? examDate,
+    String? readingPreference,
+    bool? isPremium,
+    DateTime? trialStartDate,
+    DateTime? trialEndDate,
+    String? subscriptionPlan,
+    DateTime? subscriptionStartDate,
+    DateTime? subscriptionEndDate,
+    bool? manualPremium,
+    String? manualPremiumReason,
+    String? purchasePlatform,
+    DateTime? lastValidationAt,
+  }) {
+    return ProfileData(
+      name: name ?? this.name,
+      joinedAt: joinedAt ?? this.joinedAt,
+      startDate: startDate ?? this.startDate,
+      articleSources: articleSources ?? this.articleSources,
+      quizSources: quizSources ?? this.quizSources,
+      repetitionIntervals: repetitionIntervals ?? this.repetitionIntervals,
+      themeColorValue: themeColorValue ?? this.themeColorValue,
+      examDate: examDate ?? this.examDate,
+      readingPreference: readingPreference ?? this.readingPreference,
+      isPremium: isPremium ?? this.isPremium,
+      trialStartDate: trialStartDate ?? this.trialStartDate,
+      trialEndDate: trialEndDate ?? this.trialEndDate,
+      subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
+      subscriptionStartDate: subscriptionStartDate ?? this.subscriptionStartDate,
+      subscriptionEndDate: subscriptionEndDate ?? this.subscriptionEndDate,
+      manualPremium: manualPremium ?? this.manualPremium,
+      manualPremiumReason: manualPremiumReason ?? this.manualPremiumReason,
+      purchasePlatform: purchasePlatform ?? this.purchasePlatform,
+      lastValidationAt: lastValidationAt ?? this.lastValidationAt,
+    );
+  }
 }

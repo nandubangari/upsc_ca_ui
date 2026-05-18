@@ -11,11 +11,12 @@ import 'package:upsc_ca_ui/features/subscription/screens/subscription_screen.dar
 
 class TaskCard extends StatelessWidget {
   final String date;
+  final bool isFree;
 
   static const _microStatSpacing = SizedBox(width: 12);
   static const _verticalSpacing = SizedBox(height: 4);
 
-  const TaskCard({super.key, required this.date});
+  const TaskCard({super.key, required this.date, this.isFree = false});
 
   @override
   Widget build(BuildContext context) {
@@ -37,144 +38,151 @@ class TaskCard extends StatelessWidget {
 
         final isRevision = taskType == TaskType.revision;
 
+        Widget cardContent;
+
         // Only show completed card if it's NOT a revision task and has analytical data
         if (hasAnalyticalData && !isRevision) {
           final task = context.read<DashboardProvider>().getTaskByDate(date);
           if (task == null) return const SizedBox.shrink();
-          return CompletedTaskCard(task: task);
-        }
-        
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        final primaryColor = Theme.of(context).colorScheme.primary;
-        final statusColor = isOverdue ? Colors.redAccent : primaryColor;
-        
-        return Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          height: 78, // Fixed height to match SliverFixedExtentList itemExtent (88 - 10 margin)
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () {
-                final task = context.read<DashboardProvider>().getTaskByDate(date);
-                if (task != null) {
-                  unawaited(Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => TaskDetailScreen(task: task)),
-                  ));
-                }
-              },
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: isRevision 
-                        ? statusColor.withValues(alpha: 0.3)
-                        : (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
-                    width: 1,
+          cardContent = CompletedTaskCard(task: task);
+        } else {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          final primaryColor = Theme.of(context).colorScheme.primary;
+          final statusColor = isOverdue ? Colors.redAccent : primaryColor;
+          
+          cardContent = Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            height: 78, // Fixed height to match SliverFixedExtentList itemExtent (88 - 10 margin)
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  final task = context.read<DashboardProvider>().getTaskByDate(date);
+                  if (task != null) {
+                    unawaited(Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => TaskDetailScreen(task: task)),
+                    ));
+                  }
+                },
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isRevision 
+                          ? statusColor.withValues(alpha: 0.3)
+                          : (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
+                      width: 1,
+                    ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    if (isRevision)
-                      Container(
-                        width: 3,
-                        height: 24,
-                        margin: const EdgeInsets.only(right: 12),
-                        decoration: BoxDecoration(
-                          color: statusColor,
-                          borderRadius: BorderRadius.circular(2),
-                          boxShadow: [
-                            BoxShadow(color: statusColor.withValues(alpha: 0.4), blurRadius: 4),
-                          ],
-                        ),
-                      ),
-                    
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                date,
-                                style: TextStyle(
-                                  color: isRevision ? statusColor : (isDark ? Colors.white : Colors.black87),
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.2,
-                                ),
-                              ),
-                              if (isOverdue) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.2)),
-                                  ),
-                                  child: const Text(
-                                    'OVERDUE',
-                                    style: TextStyle(
-                                      color: Colors.redAccent,
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                  child: Row(
+                    children: [
+                      if (isRevision)
+                        Container(
+                          width: 3,
+                          height: 24,
+                          margin: const EdgeInsets.only(right: 12),
+                          decoration: BoxDecoration(
+                            color: statusColor,
+                            borderRadius: BorderRadius.circular(2),
+                            boxShadow: [
+                              BoxShadow(color: statusColor.withValues(alpha: 0.4), blurRadius: 4),
                             ],
                           ),
-                          _verticalSpacing,
-                          Selector<DashboardProvider, String>(
-                            selector: (_, p) {
-                              final stats = p.getTaskStats(date);
-                              return '${stats['articlesDone']}/${stats['totalArticles']}/${stats['quizzesDone']}/${stats['totalQuizzes']}';
-                            },
-                            builder: (context, statsStr, _) {
-                              final parts = statsStr.split('/');
-                              return Row(
-                                children: [
-                                  _MicroStat(icon: Icons.article_rounded, text: '${parts[0]}/${parts[1]}'),
-                                  _microStatSpacing,
-                                  _MicroStat(icon: Icons.quiz_rounded, text: '${parts[2]}/${parts[3]}'),
-                                  if (isRevision) ...[
-                                    const Spacer(),
-                                    Text(
-                                      'REVISION · ROUND $dueDays',
+                        ),
+                      
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  date,
+                                  style: TextStyle(
+                                    color: isRevision ? statusColor : (isDark ? Colors.white : Colors.black87),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                if (isOverdue) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: Colors.redAccent.withValues(alpha: 0.2)),
+                                    ),
+                                    child: const Text(
+                                      'OVERDUE',
                                       style: TextStyle(
-                                        color: statusColor,
-                                        fontSize: 9,
+                                        color: Colors.redAccent,
+                                        fontSize: 8,
                                         fontWeight: FontWeight.w900,
                                         letterSpacing: 0.5,
                                       ),
                                     ),
-                                  ],
+                                  ),
                                 ],
-                              );
-                            }
-                          ),
-                        ],
+                              ],
+                            ),
+                            _verticalSpacing,
+                            Selector<DashboardProvider, String>(
+                              selector: (_, p) {
+                                final stats = p.getTaskStats(date);
+                                return '${stats['articlesDone']}/${stats['totalArticles']}/${stats['quizzesDone']}/${stats['totalQuizzes']}';
+                              },
+                              builder: (context, statsStr, _) {
+                                final parts = statsStr.split('/');
+                                return Row(
+                                  children: [
+                                    _MicroStat(icon: Icons.article_rounded, text: '${parts[0]}/${parts[1]}'),
+                                    _microStatSpacing,
+                                    _MicroStat(icon: Icons.quiz_rounded, text: '${parts[2]}/${parts[3]}'),
+                                    if (isRevision) ...[
+                                      const Spacer(),
+                                      Text(
+                                        'REVISION · ROUND $dueDays',
+                                        style: TextStyle(
+                                          color: statusColor,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                );
+                              }
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    
-                    if (!isRevision) 
-                      Selector<DashboardProvider, double>(
-                        selector: (_, p) => p.getTaskProgress(date),
-                        builder: (context, progress, _) {
-                          return ProgressBar(progress: progress);
-                        }
-                      ),
-                  ],
+                      
+                      if (!isRevision) 
+                        Selector<DashboardProvider, double>(
+                          selector: (_, p) => p.getTaskProgress(date),
+                          builder: (context, progress, _) {
+                            return ProgressBar(progress: progress);
+                          }
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
+          );
+        }
+
+        return PremiumGate(
+          isFree: isFree,
+          child: cardContent,
         );
       },
     );
@@ -283,10 +291,7 @@ class _CompletedTaskCardState extends State<CompletedTaskCard> {
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeInOut,
             child: _isExpanded 
-              ? PremiumGate(
-                  subtitle: "Detailed preparation analytics are premium",
-                  child: RepaintBoundary(child: _AnalyticsGrid(task: widget.task)),
-                )
+              ? RepaintBoundary(child: _AnalyticsGrid(task: widget.task))
               : const SizedBox(width: double.infinity, height: 0),
           ),
         ],

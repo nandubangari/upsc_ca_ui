@@ -310,6 +310,7 @@ class VajiramStudyService {
             subtitle: subtitle,
             url: fullUrl,
             date: date,
+            source: 'Vajiram & Ravi',
           ));
         }
       }

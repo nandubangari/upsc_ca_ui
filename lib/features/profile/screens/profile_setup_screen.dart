@@ -49,7 +49,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     super.initState();
     _nameController = TextEditingController();
     _joinedAt = DateTime.now();
-    _startDate = DateTime.now();
+    // Ensure initial start date is at least Jan 1, 2025
+    _startDate = DateTime.now().isBefore(DateTime(2025, 1, 1))
+        ? DateTime(2025, 1, 1)
+        : DateTime.now();
     unawaited(_loadProfileData());
   }
 
@@ -82,7 +85,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           final activeData = cloudData ?? localData;
           _fullProfile = activeData;
           _joinedAt = activeData.joinedAt;
-          _startDate = activeData.startDate;
+          
+          // Ensure loaded _startDate is at least Jan 1, 2025
+          _startDate = activeData.startDate.isBefore(DateTime(2025, 1, 1))
+              ? DateTime(2025, 1, 1)
+              : activeData.startDate;
+
           _examDate = activeData.examDate;
           _repetitionIntervals = activeData.repetitionIntervals;
           _readingPreference = activeData.readingPreference;
@@ -261,8 +269,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           ModernDatePicker(
             label: 'PREPARATION START DATE',
             selectedDate: _startDate,
-            firstDate: DateTime(2020),
-            lastDate: DateTime.now(),
+            firstDate: DateTime(2025, 1, 1),
+            lastDate: DateTime.now().isBefore(DateTime(2025, 1, 1)) 
+                ? DateTime(2025, 1, 1) 
+                : DateTime.now(),
             onDateSelected: (date) => setState(() => _startDate = date),
           ),
           const SizedBox(height: 20),

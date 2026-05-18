@@ -78,14 +78,14 @@ class InsightsQuizStudyService {
               sourceName = "InsightsIAS QUED";
               break;
             case "STATIC":
-              sourceName = "InsightsIAS Static (${item.subject ?? 'General'})";
+              sourceName = "InsightsIAS Static";
               break;
             case "INSTA_DART":
               sourceName = "InsightsIAS Insta-DART";
               break;
             case "CURRENT_AFFAIRS":
             default:
-              sourceName = "InsightsIAS Quiz";
+              sourceName = "InsightsIAS";
           }
           
           groupedQuizzes.putIfAbsent(isoDate, () => []).add(QuizModel(

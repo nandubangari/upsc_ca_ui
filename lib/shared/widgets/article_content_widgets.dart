@@ -1,5 +1,202 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:upsc_ca_ui/shared/models/article_content.dart';
+
+class ZoomableArticleImage extends StatelessWidget {
+  final String imageUrl;
+  final double? width;
+  final double? height;
+  final bool isTablet;
+  final BoxFit fit;
+  final double? displayHeight;
+
+  const ZoomableArticleImage({
+    super.key,
+    required this.imageUrl,
+    this.width,
+    this.height,
+    required this.isTablet,
+    this.fit = BoxFit.contain,
+    this.displayHeight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    Widget image = CachedNetworkImage(
+      imageUrl: imageUrl,
+      width: double.infinity,
+      fit: fit,
+      memCacheWidth: isTablet ? 1200 : 800,
+      imageBuilder: (context, imageProvider) => Container(
+        height: displayHeight ?? (height ?? 200),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          image: DecorationImage(image: imageProvider, fit: fit),
+        ),
+      ),
+      placeholder: (context, url) => Container(
+        height: displayHeight ?? (height ?? 100),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Center(child: CircularProgressIndicator(strokeWidth: 1)),
+      ),
+      errorWidget: (context, url, error) => const SizedBox.shrink(),
+    );
+
+    if (width != null && height != null && displayHeight == null) {
+      image = AspectRatio(
+        aspectRatio: width! / height!,
+        child: image,
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => _showFullScreenImage(context),
+      child: Hero(
+        tag: imageUrl,
+        child: image,
+      ),
+    );
+  }
+
+  void _showFullScreenImage(BuildContext context) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierDismissible: true,
+        barrierColor: Colors.black.withValues(alpha: 0.9),
+        pageBuilder: (context, _, __) {
+          return FullScreenImageViewer(imageUrl: imageUrl);
+        },
+      ),
+    );
+  }
+}
+
+class FullScreenImageViewer extends StatefulWidget {
+  final String imageUrl;
+
+  const FullScreenImageViewer({super.key, required this.imageUrl});
+
+  @override
+  State<FullScreenImageViewer> createState() => _FullScreenImageViewerState();
+}
+
+class _FullScreenImageViewerState extends State<FullScreenImageViewer> with SingleTickerProviderStateMixin {
+  final TransformationController _transformationController = TransformationController();
+  late AnimationController _animationController;
+  Animation<Matrix4>? _animation;
+  TapDownDetails? _doubleTapDetails;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )..addListener(() {
+        if (_animation != null) {
+          _transformationController.value = _animation!.value;
+        }
+      });
+  }
+
+  @override
+  void dispose() {
+    _transformationController.dispose();
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _handleDoubleTap() {
+    final Matrix4 currentMatrix = _transformationController.value;
+    final Matrix4 endMatrix;
+
+    if (currentMatrix != Matrix4.identity()) {
+      endMatrix = Matrix4.identity();
+    } else {
+      final position = _doubleTapDetails!.localPosition;
+      // Define zoom level
+      const double scale = 2.5;
+      
+      // Calculate translation to center the tapped point
+      // We want the point at 'position' to move to the center of the viewport
+      // The viewport size is the widget's size
+      final Size size = context.size!;
+      final double x = -position.dx * scale + size.width / 2;
+      final double y = -position.dy * scale + size.height / 2;
+
+      endMatrix = Matrix4.identity()
+        ..translate(x, y)
+        ..scale(scale);
+    }
+
+    _animation = Matrix4Tween(
+      begin: currentMatrix,
+      end: endMatrix,
+    ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic));
+
+    _animationController.forward(from: 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).pop(),
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+          Center(
+            child: GestureDetector(
+              onDoubleTapDown: (details) => _doubleTapDetails = details,
+              onDoubleTap: _handleDoubleTap,
+              child: InteractiveViewer(
+                transformationController: _transformationController,
+                minScale: 1.0,
+                maxScale: 4.0,
+                // 🟢 FIX: Setting constrained to false allows pinching even if image fits perfectly
+                // This ensures gesture detection starts reliably in BOTH vertical and horizontal modes.
+                constrained: false, 
+                // Add a small margin to allow comfortable panning at the edges
+                boundaryMargin: const EdgeInsets.all(20),
+                child: Hero(
+                  tag: widget.imageUrl,
+                  child: CachedNetworkImage(
+                    imageUrl: widget.imageUrl,
+                    // Use screen width as a base to ensure the image starts at a readable size
+                    width: MediaQuery.of(context).size.width,
+                    fit: BoxFit.contain,
+                    placeholder: (context, url) => const Center(
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 1),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class ArticleRichText extends StatelessWidget {
   final List<InlineSpanData> spans;

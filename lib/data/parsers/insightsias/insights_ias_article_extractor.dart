@@ -63,12 +63,12 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
       }
 
       // -----------------------------------------
-      // 2. IMAGE (figure)
+      // 2. IMAGE (figure or direct img)
       // -----------------------------------------
-      if (node.localName == 'figure') {
-        final img = node.querySelector('img');
+      if (node.localName == 'figure' || node.localName == 'img') {
+        final img = node.localName == 'img' ? node : node.querySelector('img');
         final caption = node.querySelector('figcaption')?.text ?? "";
-        final src = img?.attributes['src'] ?? "";
+        final src = _getImageUrl(img);
 
         if (src.isNotEmpty) {
           contentBlocks.add(ContentBlock(type: ContentBlockType.image, data: ImageData(url: src)));
@@ -103,7 +103,31 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
       // 5. PARAGRAPH / HEADING
       // -----------------------------------------
       if (node.localName == 'p') {
-        final text = _cleanText(node.text);
+        // 🆕 Handle images wrapped in <p>
+        final images = node.querySelectorAll('img');
+        for (final img in images) {
+          final src = _getImageUrl(img);
+          if (src.isNotEmpty) {
+            contentBlocks.add(ContentBlock(type: ContentBlockType.image, data: ImageData(url: src)));
+          }
+          img.remove(); // Remove from DOM so it's not parsed as text
+        }
+
+        final rawText = node.text;
+        
+        // 🆕 Check if the text itself contains an <img> tag (sometimes happens with escaped HTML)
+        if (rawText.contains('<img')) {
+          final processedText = _processTextForEscapedImages(rawText, contentBlocks);
+          if (processedText.trim().isEmpty) continue;
+          
+          final spans = _parseInline(node..text = processedText);
+          if (spans.isNotEmpty) {
+            contentBlocks.add(ContentBlock(type: ContentBlockType.p, data: spans));
+          }
+          continue;
+        }
+
+        final text = _cleanText(rawText);
         if (text.isEmpty) continue;
 
         // Detect heading pattern: e.g. "Context:", "About:", "What it is?"
@@ -241,6 +265,29 @@ class InsightsIASArticleExtractor implements BaseArticleExtractor {
         .map((s) => InlineSpanData(s.text.replaceAll(RegExp(r'\s+'), ' '), isBold: s.isBold, color: s.color))
         .where((s) => s.text.isNotEmpty)
         .toList();
+  }
+
+  String _getImageUrl(dom.Element? img) {
+    if (img == null) return "";
+    return img.attributes['src'] ?? 
+           img.attributes['data-src'] ?? 
+           img.attributes['data-lazy-src'] ?? 
+           "";
+  }
+
+  String _processTextForEscapedImages(String text, List<ContentBlock> blocks) {
+    final imgRegex = RegExp(r'<img[^>]+src="([^">]+)"[^>]*>');
+    var cleanedText = text;
+    final matches = imgRegex.allMatches(text);
+    
+    for (final match in matches) {
+      final url = match.group(1);
+      if (url != null) {
+        blocks.add(ContentBlock(type: ContentBlockType.image, data: ImageData(url: url)));
+      }
+      cleanedText = cleanedText.replaceFirst(match.group(0)!, "");
+    }
+    return cleanedText;
   }
 
   String _cleanText(String text) {

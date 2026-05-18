@@ -235,43 +235,43 @@ class DashboardRepository {
       // 1. Parallel Fetching for the current date
       final List<Future<void>> scrapingTasks = [];
 
-      // VisionIAS
-      scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'visionias', () => _visionService.fetchByDate(isoDate)));
+    // VisionIAS
+    scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'VisionIAS', () => _visionService.fetchByDate(isoDate)));
 
-      // InsightsIAS
-      scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'insightsias', () => _insightsService.fetchByDate(syncPointer)));
+    // InsightsIAS
+    scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'InsightsIAS', () => _insightsService.fetchByDate(syncPointer)));
 
-      // NextIAS
-      scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'nextias', () => _nextIasService.fetchByDate(isoDate)));
+    // NextIAS
+    scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'NextIAS', () => _nextIasService.fetchByDate(isoDate)));
 
-      // DrishtiIAS
-      scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'drishtiias', () => _drishtiService.fetchByDate(isoDate)));
+    // DrishtiIAS
+    scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'Drishti IAS', () => _drishtiService.fetchByDate(isoDate)));
 
-      // Range-based sources (Process exactly once per month in the sync session)
-      
-      // Insights Quiz
-      if (!_processedInsightsQuizMonths.contains(monthKey)) {
-        scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'insights_quiz', () async {
-          _processedInsightsQuizMonths.add(monthKey);
-          return await _insightsQuizService.fetchForMonth(year, month, startDate: startDate);
-        }));
-      }
+    // Range-based sources (Process exactly once per month in the sync session)
+    
+    // Insights Quiz
+    if (!_processedInsightsQuizMonths.contains(monthKey)) {
+      scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'InsightsIAS', () async {
+        _processedInsightsQuizMonths.add(monthKey);
+        return await _insightsQuizService.fetchForMonth(year, month, startDate: startDate);
+      }));
+    }
 
-      // Vajiram
-      if (!_processedVajiramMonths.contains(monthKey)) {
-        scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'vajiram', () async {
-          _processedVajiramMonths.add(monthKey);
-          return await _vajiramService.fetch(year: year, month: month, maxPages: onlyRecent ? 2 : null, cookies: cookies);
-        }));
-      }
+    // Vajiram
+    if (!_processedVajiramMonths.contains(monthKey)) {
+      scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'Vajiram', () async {
+        _processedVajiramMonths.add(monthKey);
+        return await _vajiramService.fetch(year: year, month: month, maxPages: onlyRecent ? 2 : null, cookies: cookies);
+      }));
+    }
 
-      // Chahal
-      if (!_processedChahalMonths.contains(monthKey)) {
-        scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'chahal_academy', () async {
-          _processedChahalMonths.add(monthKey);
-          return await _chahalService.fetch(year: year, month: month, startDate: startDate);
-        }));
-      }
+    // Chahal
+    if (!_processedChahalMonths.contains(monthKey)) {
+      scrapingTasks.add(_scrapeSingleSource(syncPointer, isoDate, 'Chahal Academy', () async {
+        _processedChahalMonths.add(monthKey);
+        return await _chahalService.fetch(year: year, month: month, startDate: startDate);
+      }));
+    }
 
       // Execute all scrapers in parallel for this date
       await Future.wait(scrapingTasks);
@@ -323,13 +323,14 @@ class DashboardRepository {
         // Articles
         for (var article in daily.items) {
           final articleId = article.url?.hashCode.toString() ?? article.title.hashCode.toString();
+          final effectiveSourceId = article.source ?? sourceId;
           dailyItems.add(LocalContent()
             ..contentId = articleId
             ..type = 'article'
             ..year = dailyIsoDate.split('-')[0]
             ..month = dailyIsoDate.split('-')[1]
             ..date = dailyIsoDate
-            ..sourceId = sourceId
+            ..sourceId = effectiveSourceId
             ..title = article.title
             ..subtitle = article.subtitle
             ..url = article.url
@@ -339,13 +340,14 @@ class DashboardRepository {
         // Quizzes
         for (var quiz in daily.quizzes) {
           final quizId = quiz.title.hashCode.toString();
+          final effectiveSourceId = quiz.source ?? sourceId;
           dailyItems.add(LocalContent()
             ..contentId = quizId
             ..type = 'quiz'
             ..year = dailyIsoDate.split('-')[0]
             ..month = dailyIsoDate.split('-')[1]
             ..date = dailyIsoDate
-            ..sourceId = sourceId
+            ..sourceId = effectiveSourceId
             ..title = quiz.title
             ..url = quiz.url
             ..lastFetchedAt = DateTime.now());
@@ -363,10 +365,14 @@ class DashboardRepository {
 
         // Sequence: Save Local -> Push to RTDB
         await _contentSync.saveLocalContent(items);
-        await _contentSync.markContentDirty(sourceId, date);
-        
-        // Immediate upload to RTDB for this source/date
-        await _contentSync.sync("${sourceId}_$date");
+
+        // Group by actual sourceId for markContentDirty
+        final Set<String> uniqueSources = items.map((i) => i.sourceId).toSet();
+        for (var sid in uniqueSources) {
+          await _contentSync.markContentDirty(sid, date);
+          // Immediate upload to RTDB for this source/date
+          await _contentSync.sync("${sid}_$date");
+        }
       }
     } catch (e) {
       AppLogger.e("Failed to scrape source $sourceId", e);

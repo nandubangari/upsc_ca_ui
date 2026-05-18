@@ -15,7 +15,7 @@ extension GetLocalContentCollection on Isar {
 
 const LocalContentSchema = CollectionSchema(
   name: r'LocalContent',
-  id: -4913311881926102767,
+  id: -(4913 * 1000000000000000 + 311881926102767),
   properties: {
     r'contentId': PropertySchema(
       id: 0,
@@ -75,7 +75,7 @@ const LocalContentSchema = CollectionSchema(
   idName: r'id',
   indexes: {
     r'contentId': IndexSchema(
-      id: -332487537278013663,
+      id: -(332 * 1000000000000000 + 487537278013663),
       name: r'contentId',
       unique: true,
       replace: true,

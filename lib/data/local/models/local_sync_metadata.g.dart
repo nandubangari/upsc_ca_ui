@@ -15,7 +15,7 @@ extension GetLocalSyncMetadataCollection on Isar {
 
 const LocalSyncMetadataSchema = CollectionSchema(
   name: r'LocalSyncMetadata',
-  id: 8774875281398298340,
+  id: (8774 * 1000000000000000 + 875281398298340),
   properties: {
     r'cloudUpdatedAt': PropertySchema(
       id: 0,
@@ -75,7 +75,7 @@ const LocalSyncMetadataSchema = CollectionSchema(
   idName: r'id',
   indexes: {
     r'documentId': IndexSchema(
-      id: 4187168439921340405,
+      id: (4187 * 1000000000000000 + 168439921340405),
       name: r'documentId',
       unique: true,
       replace: true,

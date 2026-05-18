@@ -14,12 +14,8 @@ import 'package:upsc_ca_ui/data/repositories/auth_repository.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 import 'package:upsc_ca_ui/data/services/quote_service.dart';
 
-import 'package:upsc_ca_ui/features/reader/screens/article_reader_screen.dart';
 import 'package:upsc_ca_ui/features/profile/screens/profile_setup_screen.dart';
 import 'package:upsc_ca_ui/features/auth/screens/vajiram_login_screen.dart';
-import 'package:upsc_ca_ui/features/subscription/screens/subscription_screen.dart';
-import 'package:upsc_ca_ui/providers/subscription_provider.dart';
-import 'package:upsc_ca_ui/data/services/subscription_service.dart';
 import 'package:upsc_ca_ui/core/utils/link_launcher_utils.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -439,6 +435,7 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                     return TaskCard(
                       key: ValueKey('in-progress-$date'),
                       date: date,
+                      isFree: index < 2,
                     );
                   },
                 ),
@@ -473,9 +470,11 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                   itemCount: dates.length,
                   itemBuilder: (context, index) {
                     final date = dates[index];
+                    final inProgressCount = provider.inProgressDateList.length;
                     return TaskCard(
                       key: ValueKey('today-$date'),
                       date: date,
+                      isFree: (index + inProgressCount) < 2,
                     );
                   },
                 ),
@@ -510,9 +509,11 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                   itemCount: dates.length,
                   itemBuilder: (context, index) {
                     final date = dates[index];
+                    final offset = provider.inProgressDateList.length + provider.todayDateList.length;
                     return TaskCard(
                       key: ValueKey('repetition-$date'),
                       date: date,
+                      isFree: (index + offset) < 2,
                     );
                   },
                 ),
@@ -547,9 +548,13 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                   itemCount: dates.length,
                   itemBuilder: (context, index) {
                     final date = dates[index];
+                    final offset = provider.inProgressDateList.length + 
+                                   provider.todayDateList.length + 
+                                   provider.repetitionDateList.length;
                     return TaskCard(
                       key: ValueKey('not-started-$date'),
                       date: date,
+                      isFree: (index + offset) < 2,
                     );
                   },
                 ),
@@ -585,9 +590,14 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                   itemCount: dates.length,
                   itemBuilder: (context, index) {
                     final date = dates[index];
+                    final offset = provider.inProgressDateList.length + 
+                                   provider.todayDateList.length + 
+                                   provider.repetitionDateList.length + 
+                                   provider.notStartedDateList.length;
                     return TaskCard(
                       key: ValueKey('completed-$date'),
                       date: date,
+                      isFree: (index + offset) < 2,
                     );
                   },
                 ),
@@ -671,6 +681,7 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                       return TaskCard(
                         key: ValueKey('wide-in-progress-$date'),
                         date: date,
+                        isFree: index < 2,
                       );
                     },
                     childCount: dates.length,
@@ -712,9 +723,11 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final date = dates[index];
+                      final inProgressCount = provider.inProgressDateList.length;
                       return TaskCard(
                         key: ValueKey('wide-today-$date'),
                         date: date,
+                        isFree: (index + inProgressCount) < 2,
                       );
                     },
                     childCount: dates.length,
@@ -756,9 +769,11 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final date = dates[index];
+                      final offset = provider.inProgressDateList.length + provider.todayDateList.length;
                       return TaskCard(
                         key: ValueKey('wide-repetition-$date'),
                         date: date,
+                        isFree: (index + offset) < 2,
                       );
                     },
                     childCount: dates.length,
@@ -795,9 +810,13 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                   itemCount: dates.length,
                   itemBuilder: (context, index) {
                     final date = dates[index];
+                    final offset = provider.inProgressDateList.length + 
+                                   provider.todayDateList.length + 
+                                   provider.repetitionDateList.length;
                     return TaskCard(
                       key: ValueKey('wide-not-started-$date'),
                       date: date,
+                      isFree: (index + offset) < 2,
                     );
                   },
                 ),
@@ -833,9 +852,14 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                   itemCount: dates.length,
                   itemBuilder: (context, index) {
                     final date = dates[index];
+                    final offset = provider.inProgressDateList.length + 
+                                   provider.todayDateList.length + 
+                                   provider.repetitionDateList.length + 
+                                   provider.notStartedDateList.length;
                     return TaskCard(
                       key: ValueKey('wide-completed-$date'),
                       date: date,
+                      isFree: (index + offset) < 2,
                     );
                   },
                 ),

@@ -120,8 +120,7 @@ class TaskDetailScreen extends StatelessWidget {
         sliver: SliverList(
           delegate: SliverChildBuilderDelegate(
             (context, index) {
-              final isFree = articleCount + index < 2;
-              return ArticleCard(article: currentSourceArticles[index], task: currentTask, isFree: isFree);
+              return ArticleCard(article: currentSourceArticles[index], task: currentTask);
             },
             childCount: currentSourceArticles.length,
           ),
@@ -183,9 +182,7 @@ class TaskDetailScreen extends StatelessWidget {
       ));
       
       for (var a in entry.value) {
-        final isFree = articleCount < 2;
-        leftSide.add((_) => ArticleCard(article: a, task: currentTask, isFree: isFree));
-        articleCount++;
+        leftSide.add((_) => ArticleCard(article: a, task: currentTask));
       }
       leftSide.add((_) => const SizedBox(height: 16));
     }

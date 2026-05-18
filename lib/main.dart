@@ -19,12 +19,16 @@ import 'package:upsc_ca_ui/data/repositories/auth_repository.dart';
 import 'package:upsc_ca_ui/data/local/isar_service.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 import 'package:upsc_ca_ui/data/sync/sync_manager.dart';
+import 'package:upsc_ca_ui/data/services/billing_service.dart';
 import 'package:upsc_ca_ui/firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+  // Initialize Billing Service early
+  BillingService().initialize();
 
   try {
     await Firebase.initializeApp(

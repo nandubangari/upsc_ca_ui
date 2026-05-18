@@ -23,7 +23,7 @@ class DrishtiStudyService {
 
     return [
       QuizModel(
-        source: 'drishtiias',
+        source: 'Drishti IAS',
         title: 'Daily Current Affairs Quiz ($formattedTitleDate)',
         url: 'https://www.drishtiias.com/quiz/quizlist/daily-current-affairs',
         isCompleted: false,

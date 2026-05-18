@@ -22,6 +22,10 @@ class AppLogger {
     debugPrint('INFO: $message');
   }
 
+  static void w(String message) {
+    debugPrint('WARNING: $message');
+  }
+
   static void startTimer(String label) {
     if (kDebugMode) {
       _timers[label] = DateTime.now();

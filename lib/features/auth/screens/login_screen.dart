@@ -5,6 +5,7 @@ import 'package:upsc_ca_ui/shared/widgets/animated_logo.dart';
 import 'package:upsc_ca_ui/shared/widgets/google_sign_in_button.dart';
 import 'package:upsc_ca_ui/data/repositories/auth_repository.dart';
 import 'package:upsc_ca_ui/data/services/firestore_service.dart';
+import 'package:upsc_ca_ui/features/subscription/screens/terms_and_conditions_screen.dart';
 
 import 'package:upsc_ca_ui/features/profile/screens/profile_setup_screen.dart';
 
@@ -21,6 +22,17 @@ class _LoginScreenState extends State<LoginScreen> {
   final FirestoreService _firestoreService = FirestoreService();
 
   Future<void> _handleSignIn() async {
+    // 1. Show Terms & Conditions first
+    final bool? agreed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const TermsAndConditionsScreen(showAcceptance: true),
+        fullscreenDialog: true,
+      ),
+    );
+
+    if (agreed != true) return;
+
     setState(() => _isLoading = true);
     
     final result = await _authRepository.signInWithGoogle();

@@ -517,27 +517,11 @@ class _ArticleContentViewState extends State<ArticleContentView> {
       case 'main_image':
         return Padding(
           padding: const EdgeInsets.only(bottom: 24),
-          child: CachedNetworkImage(
+          child: ZoomableArticleImage(
             imageUrl: item['data'],
-            width: double.infinity,
-            fit: BoxFit.contain,
-            memCacheWidth: isTablet ? 1200 : 800,
-            imageBuilder: (context, imageProvider) => Container(
-              height: 200, // Approximate or let it expand
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                image: DecorationImage(image: imageProvider, fit: BoxFit.cover),
-              ),
-            ),
-            placeholder: (context, url) => Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Center(child: CircularProgressIndicator(strokeWidth: 1)),
-            ),
-            errorWidget: (context, url, error) => const SizedBox.shrink(),
+            isTablet: isTablet,
+            fit: BoxFit.cover,
+            displayHeight: 200,
           ),
         );
       case 'summary':
@@ -787,50 +771,13 @@ class _ArticleContentViewState extends State<ArticleContentView> {
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 24),
-          child: (imageData.width != null && imageData.height != null)
-              ? AspectRatio(
-                  aspectRatio: imageData.width! / imageData.height!,
-                  child: CachedNetworkImage(
-                    imageUrl: imageData.url,
-                    width: double.infinity,
-                    fit: BoxFit.contain,
-                    memCacheWidth: isTablet ? 1200 : 800,
-                    imageBuilder: (context, imageProvider) => Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        image: DecorationImage(image: imageProvider, fit: BoxFit.contain),
-                      ),
-                    ),
-                    placeholder: (context, url) => Container(
-                      decoration: BoxDecoration(
-                        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    errorWidget: (context, url, error) => const SizedBox.shrink(),
-                  ),
-                )
-              : CachedNetworkImage(
-                  imageUrl: imageData.url,
-                  width: double.infinity,
-                  fit: BoxFit.contain,
-                  memCacheWidth: isTablet ? 1200 : 800,
-                  imageBuilder: (context, imageProvider) => Container(
-                    height: 200,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      image: DecorationImage(image: imageProvider, fit: BoxFit.contain),
-                    ),
-                  ),
-                  placeholder: (context, url) => Container(
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  errorWidget: (context, url, error) => const SizedBox.shrink(),
-                ),
+          child: ZoomableArticleImage(
+            imageUrl: imageData.url,
+            width: imageData.width,
+            height: imageData.height,
+            isTablet: isTablet,
+            fit: BoxFit.contain,
+          ),
         );
       case ContentBlockType.callout:
         final innerBlocks = block.data as List<ContentBlock>;
