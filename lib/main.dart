@@ -20,6 +20,7 @@ import 'package:upsc_ca_ui/data/local/isar_service.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 import 'package:upsc_ca_ui/data/sync/sync_manager.dart';
 import 'package:upsc_ca_ui/data/services/billing_service.dart';
+import 'package:upsc_ca_ui/core/services/analytics_service.dart';
 import 'package:upsc_ca_ui/firebase_options.dart';
 
 void main() async {
@@ -51,6 +52,7 @@ void main() async {
     MultiProvider(
       providers: [
         Provider(create: (_) => AuthRepository()),
+        Provider(create: (_) => AnalyticsService()),
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
@@ -94,6 +96,9 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       title: 'UPSC CA',
       debugShowCheckedModeBanner: false,
+      navigatorObservers: [
+        Provider.of<AnalyticsService>(context, listen: false).observer,
+      ],
       theme: AppTheme.lightTheme(themeProvider.primaryColor).copyWith(
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {

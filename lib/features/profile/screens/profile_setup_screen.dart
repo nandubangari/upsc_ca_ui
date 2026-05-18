@@ -860,11 +860,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         
         final user = _authRepository.currentUser;
         if (user != null) {
-          // Preserve existing subscription data from _fullProfile
-          final trialStart = _fullProfile?.trialStartDate ?? _joinedAt;
-          // IMPORTANT: Only initialize trialEndDate if it's missing. 
-          // Defaulting to 90 days from "now" during update would extend the trial indefinitely.
-          final trialEnd = _fullProfile?.trialEndDate ?? trialStart.add(const Duration(days: 90));
+          // Logic for trial: 
+          // 1. If trial already exists in profile, keep it as is.
+          // 2. If no trial exists, and user is NOT premium, grant a 90-day trial starting from join date.
+          DateTime? trialStart = _fullProfile?.trialStartDate;
+          DateTime? trialEnd = _fullProfile?.trialEndDate;
+
+          if (trialEnd == null && !(_fullProfile?.isPremium ?? false)) {
+            trialStart = _fullProfile?.joinedAt ?? _joinedAt;
+            trialEnd = trialStart.add(const Duration(days: 90));
+            AppLogger.d("ProfileSetup: Granting new 90-day trial ending on $trialEnd");
+          }
 
           final profile = ProfileData(
             name: _nameController.text,
@@ -878,7 +884,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             themeColorValue: themeProvider.primaryColor.toARGB32(),
             
             // Merged subscription data
-            isPremium: _fullProfile?.isPremium ?? false, // Fix: Default to false
+            isPremium: _fullProfile?.isPremium ?? false,
             trialStartDate: trialStart,
             trialEndDate: trialEnd,
             subscriptionPlan: _fullProfile?.subscriptionPlan,

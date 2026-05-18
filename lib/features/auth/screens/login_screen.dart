@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:upsc_ca_ui/shared/widgets/glass_card.dart';
 import 'package:upsc_ca_ui/shared/widgets/animated_logo.dart';
 import 'package:upsc_ca_ui/shared/widgets/google_sign_in_button.dart';
+import 'package:provider/provider.dart';
 import 'package:upsc_ca_ui/data/repositories/auth_repository.dart';
+import 'package:upsc_ca_ui/core/services/analytics_service.dart';
 import 'package:upsc_ca_ui/data/services/firestore_service.dart';
 import 'package:upsc_ca_ui/features/subscription/screens/terms_and_conditions_screen.dart';
 
@@ -40,6 +42,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     
     if (result != null && result.user != null) {
+      // Log login event
+      if (mounted) {
+        context.read<AnalyticsService>().logLogin('google');
+      }
+
       // Save user to Firestore
       await _firestoreService.saveUser(result.user!);
       

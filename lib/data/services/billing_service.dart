@@ -64,13 +64,15 @@ class BillingService {
 
   Future<void> _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) async {
     for (var purchaseDetails in purchaseDetailsList) {
+      AppLogger.d("Billing: Purchase Update Received: ${purchaseDetails.productID} | Status: ${purchaseDetails.status}");
+      
       if (purchaseDetails.status == PurchaseStatus.pending) {
         onLoadingChanged?.call(true);
       } else {
         onLoadingChanged?.call(false);
         
         if (purchaseDetails.status == PurchaseStatus.error) {
-          AppLogger.e("Purchase Error: ${purchaseDetails.error}");
+          AppLogger.e("Billing: Purchase Error: ${purchaseDetails.error}");
           onError?.call(purchaseDetails.error?.message ?? "Purchase failed");
           if (purchaseDetails.pendingCompletePurchase) {
             await _iap.completePurchase(purchaseDetails);
@@ -78,16 +80,18 @@ class BillingService {
         } else if (purchaseDetails.status == PurchaseStatus.purchased ||
                    purchaseDetails.status == PurchaseStatus.restored) {
           
+          AppLogger.d("Billing: Processing ${purchaseDetails.status.name} for ${purchaseDetails.productID}");
+          
           // Grant user premium access
           await onPurchaseSuccess?.call(purchaseDetails);
           
           // Always complete purchase
           if (purchaseDetails.pendingCompletePurchase) {
+            AppLogger.d("Billing: Completing purchase for ${purchaseDetails.productID}");
             await _iap.completePurchase(purchaseDetails);
           }
         } else if (purchaseDetails.status == PurchaseStatus.canceled) {
-          // Do nothing as per Step 6
-          AppLogger.d("Purchase cancelled");
+          AppLogger.d("Billing: Purchase cancelled by user");
         }
       }
     }

@@ -4,6 +4,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 import 'package:upsc_ca_ui/data/services/subscription_service.dart';
 import 'package:upsc_ca_ui/data/services/billing_service.dart';
+import 'package:upsc_ca_ui/core/services/analytics_service.dart';
 import 'package:upsc_ca_ui/shared/models/profile_data.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:upsc_ca_ui/core/constants/iap_constants.dart';
@@ -123,30 +124,46 @@ class SubscriptionProvider with ChangeNotifier {
   }
 
   Future<void> _handlePurchaseSuccess(PurchaseDetails purchaseDetails) async {
-    AppLogger.d("Handling successful purchase: ${purchaseDetails.productID}");
+    final isRestored = purchaseDetails.status == PurchaseStatus.restored;
+    AppLogger.d("Handling ${isRestored ? 'restored' : 'new'} purchase: ${purchaseDetails.productID}");
     
     final now = DateTime.now();
-    // Note: In a real app, you should verify the purchase on your backend.
-    // Here we'll update the profile directly as per the guide.
     
     String planId = 'monthly';
     if (purchaseDetails.productID == IapConstants.quarterlyPremium) planId = 'quarterly';
     if (purchaseDetails.productID == IapConstants.annualPremium) planId = 'yearly';
 
-    final endDate = _calculateEndDate(now, planId);
+    // If it's a restoration, and we already have a valid end date in the future, 
+    // we don't necessarily want to overwrite it with "now + 1 month" unless 
+    // we are sure it's a fresh restoration of an active sub.
+    // For simplicity in this offline-first model, we'll only update if:
+    // 1. It's a new purchase
+    // 2. It's a restoration AND (current sub is expired OR plan changed)
+    
+    bool shouldUpdate = !isRestored;
+    if (isRestored) {
+      final currentEnd = _profile?.subscriptionEndDate;
+      if (currentEnd == null || currentEnd.isBefore(now) || _profile?.subscriptionPlan != planId) {
+        shouldUpdate = true;
+      }
+    }
 
-    if (_profile != null) {
+    if (shouldUpdate && _profile != null) {
+      final endDate = _calculateEndDate(now, planId);
       final updatedProfile = _profile!.copyWith(
         isPremium: true,
         subscriptionPlan: planId,
-        subscriptionStartDate: now,
+        subscriptionStartDate: isRestored ? (_profile?.subscriptionStartDate ?? now) : now,
         subscriptionEndDate: endDate,
         purchasePlatform: 'google_play',
         lastValidationAt: now,
       );
 
       await _profileService.saveProfile(updatedProfile);
+      unawaited(AnalyticsService().logPurchase(planId));
       await refreshStatus();
+    } else {
+      AppLogger.d("Skipping profile update for restoration as current access is still valid or plan matches.");
     }
   }
 

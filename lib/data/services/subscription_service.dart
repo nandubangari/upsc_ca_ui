@@ -27,7 +27,7 @@ class SubscriptionService {
     }
 
     // 2. Check active paid subscription
-    if (profile.subscriptionEndDate != null && profile.subscriptionEndDate!.isAfter(now)) {
+    if (profile.isPremium && profile.subscriptionEndDate != null && profile.subscriptionEndDate!.isAfter(now)) {
       AppLogger.d("Access: FULL (Active Subscription)");
       return AccessLevel.full;
     }

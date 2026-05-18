@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:provider/provider.dart';
 import 'package:upsc_ca_ui/core/constants/iap_constants.dart';
+import 'package:upsc_ca_ui/core/services/analytics_service.dart';
 import 'package:upsc_ca_ui/providers/subscription_provider.dart';
 import 'package:upsc_ca_ui/features/subscription/screens/terms_and_conditions_screen.dart';
 import 'package:upsc_ca_ui/shared/widgets/blur_button.dart';
@@ -24,7 +25,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     super.initState();
     // Fetch products when screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<SubscriptionProvider>().fetchProducts();
+      if (mounted) {
+        context.read<SubscriptionProvider>().fetchProducts();
+        context.read<AnalyticsService>().logSubscriptionView();
+      }
     });
   }
 
@@ -236,7 +240,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final isSelected = _selectedPlan == id;
 
     return GestureDetector(
-      onTap: () => setState(() => _selectedPlan = id),
+      onTap: () {
+        setState(() => _selectedPlan = id);
+        context.read<AnalyticsService>().logPlanSelected(id);
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.all(20),
@@ -428,7 +435,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             const SizedBox(height: 20),
             GestureDetector(
               onTap: (_agreeToTerms && !provider.isLoading && provider.products.isNotEmpty) 
-                  ? () => provider.purchasePlan(_selectedPlan)
+                  ? () {
+                      context.read<AnalyticsService>().logInitiateCheckout(_selectedPlan);
+                      provider.purchasePlan(_selectedPlan);
+                    }
                   : null,
               child: AnimatedOpacity(
                 duration: const Duration(milliseconds: 200),
@@ -454,7 +464,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ),
             const SizedBox(height: 16),
             TextButton(
-              onPressed: () => provider.restorePurchases(),
+              onPressed: () {
+                context.read<AnalyticsService>().logRestorePurchase();
+                provider.restorePurchases();
+              },
               child: const Text('Restore Purchase', style: TextStyle(color: Colors.white38, fontWeight: FontWeight.w700)),
             ),
           ],
