@@ -418,12 +418,9 @@ class _ArticleContentViewState extends State<ArticleContentView> {
               child: VisibilityDetector(
                 key: Key('article-${widget.url}-${flattenedItems.length}'), // 🟢 FIX: More unique key to avoid duplicates
                 onVisibilityChanged: (info) {
-                  if (info.visibleFraction <= 0) {
-                    // Page is offscreen, clear the heavy flattened cache to save RAM
-                    // It will be re-calculated automatically if the user scrolls back
-                    _cacheFlattenedItems = null;
-                    _cacheArticles = null;
-                  }
+                  // 🟢 OPTIMIZATION: Removed aggressive cache clearing. 
+                  // Keeping the flattened items in memory prevents the jittery "jump" 
+                  // when scrolling back to the top of an article after swiping.
                 },
                 child: NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
@@ -451,6 +448,7 @@ class _ArticleContentViewState extends State<ArticleContentView> {
                     return false;
                   },
                   child: CustomScrollView(
+                    cacheExtent: 2000, // 🟢 FIX: High cache extent for smoother scroll & better top-scroll recovery
                     physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                     slivers: [
                       // 🟢 AGGRESSIVE FIX: Use SliverAppBar instead of custom delegate for 100% SliverGeometry stability
@@ -463,7 +461,8 @@ class _ArticleContentViewState extends State<ArticleContentView> {
                         toolbarHeight: isTablet ? 110 : 90,
                         titleSpacing: 0,
                         title: Container(
-                          padding: EdgeInsets.fromLTRB(hPadding, mediaQuery.padding.top, hPadding, 0),
+                          // 🟢 STABILITY FIX: Use safe area top instead of dynamic padding to keep layout stable
+                          padding: EdgeInsets.fromLTRB(hPadding, mediaQuery.viewPadding.top, hPadding, 0),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
