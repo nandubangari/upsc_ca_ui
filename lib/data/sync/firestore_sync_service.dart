@@ -109,17 +109,24 @@ abstract class FirestoreSyncService {
     try {
       final docRef = _db.collection('users').doc(uid).collection(collectionName).doc(documentId);
       
-      try {
-        // Use update() to correctly handle dot-notated field paths as nested maps in Firestore.
-        // set(merge: true) treats dots in keys as literal parts of the field name.
-        await docRef.update(diff);
-      } catch (e) {
-        // If document doesn't exist, update() fails. Fallback to set() with the full nested localData.
-        if (e is FirebaseException && (e.code == 'not-found' || e.code == 'NOT_FOUND')) {
-          AppLogger.d("Sync: Document $documentId not found. Creating new with full data.");
-          await docRef.set(localData, SetOptions(merge: true));
-        } else {
-          rethrow;
+      // If we've never successfully synced this doc and have no cloud copy, 
+      // use set() to avoid the NOT_FOUND error from update().
+      if (metadata.lastSyncedAt == 0 && lastCloudCopy.isEmpty) {
+        AppLogger.d("Sync: Document $documentId appears new. Using set().");
+        await docRef.set(localData, SetOptions(merge: true));
+      } else {
+        try {
+          // Use update() to correctly handle dot-notated field paths as nested maps in Firestore.
+          // set(merge: true) treats dots in keys as literal parts of the field name.
+          await docRef.update(diff);
+        } catch (e) {
+          // If document doesn't exist, update() fails. Fallback to set() with the full nested localData.
+          if (e is FirebaseException && (e.code == 'not-found' || e.code == 'NOT_FOUND')) {
+            AppLogger.d("Sync: Document $documentId not found during update. Falling back to set().");
+            await docRef.set(localData, SetOptions(merge: true));
+          } else {
+            rethrow;
+          }
         }
       }
       
