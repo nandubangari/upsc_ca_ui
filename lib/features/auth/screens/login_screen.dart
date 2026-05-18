@@ -20,20 +20,20 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
+  bool _agreeToTerms = false;
   final AuthRepository _authRepository = AuthRepository();
   final FirestoreService _firestoreService = FirestoreService();
 
   Future<void> _handleSignIn() async {
-    // 1. Show Terms & Conditions first
-    final bool? agreed = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const TermsAndConditionsScreen(showAcceptance: true),
-        fullscreenDialog: true,
-      ),
-    );
-
-    if (agreed != true) return;
+    if (!_agreeToTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please check "I agree to the Terms and Conditions" to continue.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
     
@@ -143,7 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Read today.\nRecall tomorrow.',
+                      'Revision That\nActually Works.',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         fontSize: 22,
                       ),
@@ -173,7 +173,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
-                        const SizedBox(height: 56),
+                        const SizedBox(height: 48),
+                        _buildTermsCheckbox(context),
+                        const SizedBox(height: 16),
                         GoogleSignInButton(
                           isLoading: _isLoading,
                           onPressed: () => unawaited(_handleSignIn()),
@@ -210,11 +212,13 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       const SizedBox(height: 12),
       Text(
-        'Read today. Recall tomorrow.',
+        'Revision That Actually Works.',
         textAlign: textAlign,
         style: Theme.of(context).textTheme.bodyLarge,
       ),
-      const SizedBox(height: 64),
+      const SizedBox(height: 56),
+      _buildTermsCheckbox(context),
+      const SizedBox(height: 16),
       GoogleSignInButton(
         isLoading: _isLoading,
         onPressed: () => unawaited(_handleSignIn()),
@@ -229,6 +233,59 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
     ];
+  }
+
+  Widget _buildTermsCheckbox(BuildContext context) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: Checkbox(
+              value: _agreeToTerms,
+              onChanged: (val) => setState(() => _agreeToTerms = val ?? false),
+              activeColor: primaryColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Wrap(
+              children: [
+                const Text(
+                  'I agree to the ',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const TermsAndConditionsScreen(showAcceptance: false),
+                        fullscreenDialog: true,
+                      ),
+                    );
+                  },
+                  child: Text(
+                    'Terms & Conditions',
+                    style: TextStyle(
+                      color: primaryColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
