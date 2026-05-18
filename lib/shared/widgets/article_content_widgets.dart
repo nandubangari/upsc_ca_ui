@@ -120,13 +120,10 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> with Sing
       endMatrix = Matrix4.identity();
     } else {
       final position = _doubleTapDetails!.localPosition;
-      // Define zoom level
       const double scale = 2.5;
       
       // Calculate translation to center the tapped point
-      // We want the point at 'position' to move to the center of the viewport
-      // The viewport size is the widget's size
-      final Size size = context.size!;
+      final Size size = MediaQuery.of(context).size;
       final double x = -position.dx * scale + size.width / 2;
       final double y = -position.dy * scale + size.height / 2;
 
@@ -145,50 +142,69 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> with Sing
 
   @override
   Widget build(BuildContext context) {
+    final Size screenSize = MediaQuery.of(context).size;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
+          // Background tap to pop - only if hit directly
           Positioned.fill(
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () => Navigator.of(context).pop(),
               child: Container(color: Colors.transparent),
             ),
           ),
-          Center(
+          
+          // Full-screen gesture area for InteractiveViewer
+          Positioned.fill(
             child: GestureDetector(
+              // 🟢 FIX: Consume single taps here so they don't reach the background 'pop' handler
+              onTap: () {}, 
               onDoubleTapDown: (details) => _doubleTapDetails = details,
               onDoubleTap: _handleDoubleTap,
               child: InteractiveViewer(
                 transformationController: _transformationController,
                 minScale: 1.0,
                 maxScale: 4.0,
-                // 🟢 FIX: Setting constrained to false allows pinching even if image fits perfectly
-                // This ensures gesture detection starts reliably in BOTH vertical and horizontal modes.
-                constrained: false, 
-                // Add a small margin to allow comfortable panning at the edges
-                boundaryMargin: const EdgeInsets.all(20),
-                child: Hero(
-                  tag: widget.imageUrl,
-                  child: CachedNetworkImage(
-                    imageUrl: widget.imageUrl,
-                    // Use screen width as a base to ensure the image starts at a readable size
-                    width: MediaQuery.of(context).size.width,
-                    fit: BoxFit.contain,
-                    placeholder: (context, url) => const Center(
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 1),
+                // Using constrained: true ensures the child stays centered properly
+                constrained: true,
+                onInteractionStart: (_) {
+                  if (_animationController.isAnimating) {
+                    _animationController.stop();
+                  }
+                },
+                child: Center(
+                  child: Hero(
+                    tag: widget.imageUrl,
+                    child: CachedNetworkImage(
+                      imageUrl: widget.imageUrl,
+                      fit: BoxFit.contain,
+                      // 🟢 IMPROVEMENT: Match memCache settings or remove them for full-res view
+                      placeholder: (context, url) => const Center(
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 1),
+                      ),
+                      errorWidget: (context, url, error) => const Icon(Icons.error_outline, color: Colors.white38),
                     ),
                   ),
                 ),
               ),
             ),
           ),
+
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 30),
-                onPressed: () => Navigator.of(context).pop(),
+              child: Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black26,
+                  ),
+                ),
               ),
             ),
           ),

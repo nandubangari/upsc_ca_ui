@@ -38,6 +38,7 @@ class ArticleReaderScreen extends StatefulWidget {
 class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   late PageController _pageController;
   bool _isInitialized = false;
+  DashboardProvider? _provider;
 
   @override
   void initState() {
@@ -52,9 +53,16 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 🟢 FIX: Cache provider reference to safely use it in dispose()
+    _provider = Provider.of<DashboardProvider>(context, listen: false);
+  }
+
+  @override
   void dispose() {
-    // Notify provider that reader is closed
-    context.read<DashboardProvider>().setReaderOpen(false);
+    // Notify provider that reader is closed using the cached reference
+    _provider?.setReaderOpen(false);
     _pageController.dispose();
     super.dispose();
   }
