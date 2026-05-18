@@ -96,13 +96,15 @@ abstract class FirestoreSyncService {
 
     final diff = _calculateIncrementalUpdate("", localData, lastCloudCopy);
     if (diff.isEmpty) {
-      AppLogger.d("No incremental changes found for $documentId. Marking clean.");
+      AppLogger.d("Sync: No incremental changes found for $collectionName/$documentId. Marking clean.");
       await _isar.writeTxn(() async {
         metadata.isDirty = false;
         await _isar.localSyncMetadatas.put(metadata);
       });
       return;
     }
+
+    AppLogger.d("Sync: Uploading ${diff.length} fields for $collectionName/$documentId...");
 
     try {
       final docRef = _db.collection('users').doc(uid).collection(collectionName).doc(documentId);
@@ -114,6 +116,7 @@ abstract class FirestoreSyncService {
       } catch (e) {
         // If document doesn't exist, update() fails. Fallback to set() with the full nested localData.
         if (e is FirebaseException && (e.code == 'not-found' || e.code == 'NOT_FOUND')) {
+          AppLogger.d("Sync: Document $documentId not found. Creating new with full data.");
           await docRef.set(localData, SetOptions(merge: true));
         } else {
           rethrow;
@@ -122,7 +125,7 @@ abstract class FirestoreSyncService {
       
       FirebaseCostTracker.recordFirestoreWrite();
 
-      AppLogger.d("Uploaded ${diff.length} changes to Firestore for $collectionName/$documentId");
+      AppLogger.d("Sync: SUCCESS for $collectionName/$documentId");
 
       await _isar.writeTxn(() async {
         metadata.lastFetchedCloudCopy = metadata.localData;
@@ -131,7 +134,7 @@ abstract class FirestoreSyncService {
         await _isar.localSyncMetadatas.put(metadata);
       });
     } catch (e) {
-      AppLogger.e("Failed to sync $collectionName/$documentId to Firestore", e);
+      AppLogger.e("Sync: FAILED for $collectionName/$documentId", e);
     }
   }
 
@@ -182,7 +185,10 @@ abstract class FirestoreSyncService {
 
     try {
       final querySnapshot = await _db.collection('users').doc(uid).collection(collectionName).get();
-      FirebaseCostTracker.recordFirestoreRead(querySnapshot.docs.length);
+      
+      // Cost tracking: 1 query = 1 read if empty, or 1 read per document.
+      // We pass the document count to track the actual cost.
+      FirebaseCostTracker.recordFirestoreRead(querySnapshot.docs.isEmpty ? 1 : querySnapshot.docs.length);
 
       if (querySnapshot.docs.isEmpty) return;
 
@@ -199,13 +205,27 @@ abstract class FirestoreSyncService {
                 ..collection = collectionName
                 ..originalDocId = documentId
                 ..cloudUpdatedAt = 0
-                ..localUpdatedAt = DateTime.now().millisecondsSinceEpoch // Fix: Initialize localUpdatedAt
+                ..localUpdatedAt = DateTime.now().millisecondsSinceEpoch
                 ..syncVersion = 0;
 
-          m.localData = jsonEncode(cloudData);
+          // Merge logic: If local is dirty, don't overwrite local changes
+          if (m.isDirty) {
+            Map<String, dynamic> localData = {};
+            try {
+              localData = jsonDecode(m.localData);
+            } catch (e) {
+              AppLogger.e("Data corruption in $fullDocId. Overwriting.");
+            }
+            // Merge cloud updates into local, but local values win on conflict for dirty fields
+            m.localData = jsonEncode(_deepMerge(cloudData, localData));
+            // Keep it dirty so these changes are eventually pushed back up
+          } else {
+            m.localData = jsonEncode(cloudData);
+            m.isDirty = false;
+          }
+
           m.lastFetchedCloudCopy = jsonEncode(cloudData);
           m.lastSyncedAt = DateTime.now().millisecondsSinceEpoch;
-          m.isDirty = false;
           await _isar.localSyncMetadatas.put(m);
         }
       });

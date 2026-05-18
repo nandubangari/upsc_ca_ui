@@ -66,11 +66,13 @@ class ZoomableArticleImage extends StatelessWidget {
   void _showFullScreenImage(BuildContext context) {
     Navigator.of(context).push(
       PageRouteBuilder(
-        opaque: false,
-        barrierDismissible: true,
-        barrierColor: Colors.black.withValues(alpha: 0.9),
-        pageBuilder: (context, anim1, anim2) {
+        opaque: true, // 🟢 STABILITY FIX: Using opaque routes prevents complex framework detachment issues
+        barrierDismissible: false,
+        pageBuilder: (context, animation, secondaryAnimation) {
           return FullScreenImageViewer(imageUrl: imageUrl);
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
         },
       ),
     );
@@ -142,10 +144,8 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> with Sing
 
   @override
   Widget build(BuildContext context) {
-    final Size screenSize = MediaQuery.of(context).size;
-
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Colors.black, // 🟢 STABILITY FIX: Solid background for opaque route
       body: Stack(
         children: [
           // Background tap to pop - only if hit directly

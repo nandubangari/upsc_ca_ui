@@ -7,23 +7,23 @@ class LocalSyncMetadata {
   Id id = Isar.autoIncrement;
 
   @Index(unique: true, replace: true)
-  late String documentId; // uid_collection_originalDocId
+  String documentId = ""; // uid_collection_originalDocId
 
-  late String collection; 
+  String collection = ""; 
 
-  late String originalDocId; // The docId in Firestore
+  String originalDocId = ""; // The docId in Firestore
 
-  late String localData; // JSON string
+  String localData = "{}"; // JSON string
 
-  late String lastFetchedCloudCopy; // JSON string
+  String lastFetchedCloudCopy = "{}"; // JSON string
 
-  late int localUpdatedAt; // timestamp in ms
+  int localUpdatedAt = 0; // timestamp in ms
 
-  late int cloudUpdatedAt; // timestamp in ms
+  int cloudUpdatedAt = 0; // timestamp in ms
 
-  late int lastSyncedAt; // timestamp in ms
+  int lastSyncedAt = 0; // timestamp in ms
 
-  late bool isDirty;
+  bool isDirty = false;
 
-  late int syncVersion;
+  int syncVersion = 0;
 }

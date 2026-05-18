@@ -36,7 +36,6 @@ class DashboardRepository {
   final InsightsQuizStudyService _insightsQuizService = InsightsQuizStudyService();
 
   // Cache and tracking for range-based sources
-  final Map<String, List<DailyStudyData>> _monthScrapedCache = {};
   final Set<String> _processedVajiramMonths = {};
   final Set<String> _processedInsightsQuizMonths = {};
   final Set<String> _processedChahalMonths = {};
@@ -388,6 +387,8 @@ class DashboardRepository {
       date: date,
       articleId: articleId,
     );
+    // 🟢 Immediate sync
+    unawaited(_progressSync.sync("${year}_$monthId"));
     SyncManager().resetIdleTimer();
   }
 
@@ -399,11 +400,41 @@ class DashboardRepository {
       date: date,
       quizId: quizId,
     );
+    // 🟢 Immediate sync
+    unawaited(_progressSync.sync("${year}_$monthId"));
     SyncManager().resetIdleTimer();
   }
 
   Future<void> addCustomTask(String isoDate, ArticleModel item) async {
     await _customTaskSync.addCustomTask(isoDate, item);
+    // 🟢 Immediate sync
+    final date = DateTime.tryParse(isoDate);
+    if (date != null) {
+      final documentId = "${date.year}_${date.month.toString().padLeft(2, '0')}";
+      unawaited(_customTaskSync.sync(documentId));
+    }
     SyncManager().resetIdleTimer();
+  }
+
+  Future<void> syncCustomTasks(String isoDate) async {
+    final date = DateTime.tryParse(isoDate);
+    if (date == null) return;
+    final documentId = "${date.year}_${date.month.toString().padLeft(2, '0')}";
+    await _customTaskSync.sync(documentId);
+  }
+
+  Future<void> deleteCustomTask(String isoDate, String articleUrl) async {
+    await _customTaskSync.deleteCustomTask(isoDate, articleUrl);
+    // 🟢 Immediate sync
+    final date = DateTime.tryParse(isoDate);
+    if (date != null) {
+      final documentId = "${date.year}_${date.month.toString().padLeft(2, '0')}";
+      unawaited(_customTaskSync.sync(documentId));
+    }
+    SyncManager().resetIdleTimer();
+  }
+
+  Future<void> downloadAllCustomTasks() async {
+    await _customTaskSync.downloadAll();
   }
 }

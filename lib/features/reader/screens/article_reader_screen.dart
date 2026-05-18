@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -8,7 +7,6 @@ import 'package:visibility_detector/visibility_detector.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
 import 'package:upsc_ca_ui/shared/models/article_model.dart';
 import 'package:upsc_ca_ui/shared/models/article_content.dart';
@@ -40,11 +38,12 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   late PageController _pageController;
   bool _isInitialized = false;
   DashboardProvider? _provider;
+  List<Map<String, dynamic>> _stableFlattened = [];
 
   @override
   void initState() {
     super.initState();
-    // Initialize with 0, we will jump to the correct index in build once data is ready
+    // Temporary controller, will be replaced once data is ready
     _pageController = PageController();
     
     // Notify provider that reader is open to pause background tasks
@@ -58,6 +57,56 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
     super.didChangeDependencies();
     // 🟢 FIX: Cache provider reference to safely use it in dispose()
     _provider = Provider.of<DashboardProvider>(context, listen: false);
+    
+    // 🟢 AGGRESSIVE FIX: Initialize the stable list and controller here, NOT in build()
+    // This prevents the PageView from rebuilding/jumping when articles are marked completed.
+    if (!_isInitialized) {
+      final provider = _provider!;
+      
+      // Always use the list that includes completed items for PageView index stability
+      _stableFlattened = provider.allArticlesFlattenedWithCompleted;
+      
+      if (_stableFlattened.isNotEmpty) {
+        int startIndex = 0;
+        String? targetUrl = widget.initialUrl;
+        
+        // If no explicit URL was passed, try to resume from the last viewed one
+        if (targetUrl == null && provider.lastViewedUrl != null) {
+          targetUrl = provider.lastViewedUrl;
+        }
+
+        if (targetUrl != null) {
+          startIndex = _stableFlattened.indexWhere((item) {
+            final art = item['article'] as ArticleModel;
+            return art.url == targetUrl;
+          });
+          
+          if (startIndex == -1) {
+            AppLogger.d('DEBUG: [ArticleReader] Target URL not found in flattened list: $targetUrl');
+            // If the specific URL isn't found, try to find the FIRST UNREAD article
+            startIndex = _stableFlattened.indexWhere((item) => !(item['article'] as ArticleModel).isCompleted);
+            if (startIndex == -1) startIndex = 0;
+          } else {
+            AppLogger.d('DEBUG: [ArticleReader] Found Target URL at index $startIndex: $targetUrl');
+          }
+        } else {
+          // If no URL at all, find the first unread
+          startIndex = _stableFlattened.indexWhere((item) => !(item['article'] as ArticleModel).isCompleted);
+          if (startIndex == -1) startIndex = 0;
+        }
+        
+        // Dispose old and create new with correct page
+        _pageController.dispose();
+        _pageController = PageController(initialPage: startIndex);
+        _isInitialized = true;
+
+        // Record initial last viewed
+        final article = _stableFlattened[startIndex]['article'] as ArticleModel;
+        if (article.url != null) {
+          unawaited(provider.setLastViewedUrl(article.url!));
+        }
+      }
+    }
   }
 
   @override
@@ -111,72 +160,34 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
       backgroundColor: backgroundColor,
       body: Consumer<DashboardProvider>(
         builder: (context, provider, child) {
-          // 🟢 FIX: If we have an initialUrl, we might be trying to open a COMPLETED article.
-          // In that case, use the list that includes completed items.
-          // Otherwise, use the unread-only list for the "Continue Reading" flow.
-          final flattened = widget.initialUrl != null 
-              ? provider.allArticlesFlattenedWithCompleted 
-              : provider.allArticlesFlattened;
-          
-          if (flattened.isEmpty) {
+          if (_stableFlattened.isEmpty) {
+            // If data wasn't ready during didChangeDependencies, it might be empty.
+            // But usually, the reader is opened AFTER data is ready on the dashboard.
             return const Center(child: Text('No articles available'));
-          }
-
-          // 🟢 CRITICAL: Find the correct starting index based on URL, not a passed-in stale index
-          if (!_isInitialized) {
-            int startIndex = 0;
-            String? targetUrl = widget.initialUrl;
-            
-            // If no explicit URL was passed, try to resume from the last viewed one
-            if (targetUrl == null && provider.lastViewedUrl != null) {
-              targetUrl = provider.lastViewedUrl;
-            }
-
-            if (targetUrl != null) {
-              startIndex = flattened.indexWhere((item) {
-                final art = item['article'] as ArticleModel;
-                return art.url == targetUrl;
-              });
-              if (startIndex == -1) {
-                AppLogger.d('DEBUG: [ArticleReader] Target URL not found in flattened list: $targetUrl');
-                startIndex = 0;
-              } else {
-                AppLogger.d('DEBUG: [ArticleReader] Found Target URL at index $startIndex: $targetUrl');
-              }
-            }
-            
-            // Re-initialize controller with correct start page
-            _pageController = PageController(initialPage: startIndex);
-            _isInitialized = true;
-
-            // Also record this as the current last viewed if we just started
-            final article = flattened[startIndex]['article'] as ArticleModel;
-            if (article.url != null) {
-              unawaited(provider.setLastViewedUrl(article.url!));
-            }
           }
 
           return PageView.builder(
             controller: _pageController,
             scrollDirection: Axis.vertical,
-            itemCount: flattened.length,
+            itemCount: _stableFlattened.length,
             onPageChanged: (index) {
-              final article = flattened[index]['article'] as ArticleModel;
+              final article = _stableFlattened[index]['article'] as ArticleModel;
               if (article.url != null) {
                 unawaited(provider.setLastViewedUrl(article.url!));
               }
             },
             itemBuilder: (context, index) {
-              final item = flattened[index];
+              final item = _stableFlattened[index];
               final task = item['task'] as DashboardTask;
               final article = item['article'] as ArticleModel;
               
               if (article.url == null) return const SizedBox.shrink();
 
               return ArticleContentView(
+                key: ValueKey('view-${article.url}'), // AGGRESSIVE STABILITY: Unique key per URL
                 url: article.url!,
                 initialTitle: article.title,
-                onNextArticle: () => _goToNextPage(task, article, index, flattened.length),
+                onNextArticle: () => _goToNextPage(task, article, index, _stableFlattened.length),
                 onPreviousArticle: _goToPreviousPage,
               );
             },
@@ -396,11 +407,16 @@ class _ArticleContentViewState extends State<ArticleContentView> {
           return Scaffold(
             backgroundColor: backgroundColor,
             body: SelectionArea(
-              onSelectionChanged: (content) => setState(() => _selectedContent = content),
+              onSelectionChanged: (content) {
+                // 🟢 FIX: Avoid setState during build
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) setState(() => _selectedContent = content);
+                });
+              },
               contextMenuBuilder: (context, selectableRegionState) => 
                   _buildContextMenu(context, selectableRegionState),
               child: VisibilityDetector(
-                key: Key('article-${widget.url}'),
+                key: Key('article-${widget.url}-${flattenedItems.length}'), // 🟢 FIX: More unique key to avoid duplicates
                 onVisibilityChanged: (info) {
                   if (info.visibleFraction <= 0) {
                     // Page is offscreen, clear the heavy flattened cache to save RAM
@@ -437,16 +453,47 @@ class _ArticleContentViewState extends State<ArticleContentView> {
                   child: CustomScrollView(
                     physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                     slivers: [
-                      SliverPersistentHeader(
+                      // 🟢 AGGRESSIVE FIX: Use SliverAppBar instead of custom delegate for 100% SliverGeometry stability
+                      SliverAppBar(
                         pinned: true,
-                        delegate: _StickyTitleDelegate(
-                          title: mainDisplayTitle,
-                          isDark: isDark,
-                          isTablet: isTablet,
-                          backgroundColor: backgroundColor,
-                          padding: hPadding,
-                          topPadding: mediaQuery.padding.top,
-                          onOpenInBrowser: () => unawaited(_launchUrl(widget.url)),
+                        automaticallyImplyLeading: false,
+                        backgroundColor: backgroundColor,
+                        elevation: 0,
+                        scrolledUnderElevation: 0,
+                        toolbarHeight: isTablet ? 110 : 90,
+                        titleSpacing: 0,
+                        title: Container(
+                          padding: EdgeInsets.fromLTRB(hPadding, mediaQuery.padding.top, hPadding, 0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  mainDisplayTitle,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white : Colors.black87,
+                                    fontSize: isTablet ? 20 : 18,
+                                    fontWeight: FontWeight.w900,
+                                    height: 1.15,
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                onPressed: () => unawaited(_launchUrl(widget.url)),
+                                icon: Icon(
+                                  Icons.open_in_new_rounded,
+                                  size: isTablet ? 20 : 18,
+                                  color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.5),
+                                ),
+                                tooltip: 'Open in Browser',
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
 
@@ -886,85 +933,6 @@ class _BottomSheetWebView extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class _StickyTitleDelegate extends SliverPersistentHeaderDelegate {
-  final String title;
-  final bool isDark;
-  final bool isTablet;
-  final Color backgroundColor;
-  final double padding;
-  final double topPadding;
-  final VoidCallback onOpenInBrowser;
-
-  _StickyTitleDelegate({
-    required this.title,
-    required this.isDark,
-    required this.isTablet,
-    required this.backgroundColor,
-    required this.padding,
-    required this.topPadding,
-    required this.onOpenInBrowser,
-  });
-
-  @override
-  double get minExtent => topPadding + (isTablet ? 70 : 60);
-  @override
-  double get maxExtent => topPadding + (isTablet ? 120 : 100);
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final progress = (shrinkOffset / (maxExtent - minExtent)).clamp(0.0, 1.0);
-    final titleSize = Tween<double>(begin: isTablet ? 26 : 22, end: isTablet ? 18 : 16).transform(progress);
-    
-    // 🟢 CRITICAL FIX: The container must have a height that satisfies SliverGeometry validation.
-    // The height should ideally match the current extent of the sliver.
-    final currentExtent = math.max(minExtent, maxExtent - shrinkOffset);
-
-    return Container(
-      height: currentExtent,
-      color: backgroundColor.withValues(alpha: progress.clamp(0.0, 0.95)),
-      padding: EdgeInsets.fromLTRB(padding, topPadding + 10, padding, 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              maxLines: progress > 0.5 ? 1 : 3,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: isDark ? Colors.white : Colors.black87,
-                fontSize: titleSize,
-                fontWeight: FontWeight.w900,
-                height: 1.15,
-                letterSpacing: -0.5,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: IconButton(
-              onPressed: onOpenInBrowser,
-              icon: Icon(
-                Icons.open_in_new_rounded,
-                size: isTablet ? 20 : 18,
-                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.5),
-              ),
-              tooltip: 'Open in Browser',
-              visualDensity: VisualDensity.compact,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  bool shouldRebuild(covariant _StickyTitleDelegate oldDelegate) {
-    return oldDelegate.title != title || oldDelegate.isDark != isDark;
   }
 }
 

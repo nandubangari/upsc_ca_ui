@@ -83,10 +83,10 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
           if (!isVisible && _cachedUI != null) return _cachedUI!;
 
           // 2. Main Content and Login Side Effects
-          return Selector<DashboardProvider, (bool, String?, bool, int, bool)>(
-            selector: (_, p) => (p.isLoading, p.error, p.data != null, p.data?.daysLeft ?? 0, p.needsVajiramLogin),
+          return Selector<DashboardProvider, (bool, bool, String?, bool, int, bool)>(
+            selector: (_, p) => (p.isLoading, p.isInitialLoading, p.error, p.data != null, p.data?.daysLeft ?? 0, p.needsVajiramLogin),
             builder: (context, state, _) {
-              final (isLoading, error, hasData, daysLeft, needsLogin) = state;
+              final (isLoading, isInitialLoading, error, hasData, daysLeft, needsLogin) = state;
 
               // Handle Vajiram Login Side Effect
               if (needsLogin) {
@@ -104,7 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
                 });
               }
 
-              if (isLoading) {
+              if (isLoading || isInitialLoading) {
                 return _buildLoadingSkeleton(context, daysLeft);
               } else if (error != null) {
                 final isDark = Theme.of(context).brightness == Brightness.dark;

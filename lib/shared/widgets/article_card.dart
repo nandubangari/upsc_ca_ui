@@ -1,9 +1,6 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:upsc_ca_ui/shared/models/article_model.dart';
-import 'package:upsc_ca_ui/features/reader/screens/article_reader_screen.dart';
-import 'package:upsc_ca_ui/features/web_view/screens/web_view_screen.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
 import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
 import 'package:upsc_ca_ui/shared/widgets/premium_gate.dart';
@@ -28,7 +25,7 @@ class ArticleCard extends StatelessWidget {
     return Selector<DashboardProvider, bool>(
       selector: (_, p) => p.isArticleCompleted(article.url),
       builder: (context, isCompleted, child) {
-        return RepaintBoundary(
+        Widget content = RepaintBoundary(
           child: Container(
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
@@ -54,6 +51,12 @@ class ArticleCard extends StatelessWidget {
                   );
                 }
               },
+              onLongPress: article.isCustom ? () async {
+                final confirmed = await _showDeleteConfirmation(context);
+                if (confirmed && context.mounted) {
+                  context.read<DashboardProvider>().deleteCustomTask(task!.date, article.url!);
+                }
+              } : null,
               borderRadius: BorderRadius.circular(10),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -90,7 +93,60 @@ class ArticleCard extends StatelessWidget {
             ),
           ),
         );
+
+        if (article.isCustom && task != null) {
+          return Dismissible(
+            key: Key('custom-task-${article.url}-${task!.date}'),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.red.shade400,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20),
+              child: const Icon(Icons.delete_outline_rounded, color: Colors.white, size: 24),
+            ),
+            confirmDismiss: (direction) => _showDeleteConfirmation(context),
+            onDismissed: (direction) {
+              context.read<DashboardProvider>().deleteCustomTask(task!.date, article.url!);
+            },
+            child: content,
+          );
+        }
+
+        return content;
       },
     );
+  }
+
+  Future<bool> _showDeleteConfirmation(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Task?', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Text('Are you sure you want to delete "${article.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade400, foregroundColor: Colors.white),
+            child: const Text('DELETE'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && article.isCustom && task != null) {
+      // If triggered by long press, we need to call delete manually
+      // If triggered by swipe, Dismissible handles it in onDismissed
+      // This is a bit tricky, so we'll just return the result for Dismissible
+      // and let the caller handle manual deletion if needed.
+    }
+    return result ?? false;
   }
 }

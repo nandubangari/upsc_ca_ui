@@ -25,6 +25,11 @@ class SubscriptionProvider with ChangeNotifier {
   List<ProductDetails> get products => _products;
   String? get errorMessage => _errorMessage;
 
+  void clearErrorMessage() {
+    _errorMessage = null;
+    notifyListeners();
+  }
+
   SubscriptionProvider() {
     _init();
     _setupBillingListeners();

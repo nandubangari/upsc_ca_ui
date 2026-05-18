@@ -13,7 +13,7 @@ import 'profile_sync_service.dart';
 import 'content_sync_service.dart';
 import 'custom_task_sync_service.dart';
 
-enum SyncEventType { initialSyncComplete }
+enum SyncEventType { initialSyncComplete, userDataSyncComplete }
 
 class SyncEvent {
   final SyncEventType type;
@@ -34,6 +34,8 @@ class SyncManager with WidgetsBindingObserver {
   final Isar _isar = IsarService.isar;
   Timer? _safetyTimer;
   Timer? _idleTimer;
+  
+  bool _isSyncingUserData = false;
 
   final _eventController = StreamController<SyncEvent>.broadcast();
   Stream<SyncEvent> get events => _eventController.stream;
@@ -44,8 +46,9 @@ class SyncManager with WidgetsBindingObserver {
     // 1. Listen for auth changes to trigger sync
     FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null) {
-        AppLogger.d("User logged in. Checking initial sync...");
+        AppLogger.d("User logged in. Checking sync status...");
         unawaited(_checkInitialContentSync());
+        unawaited(_syncUserData());
       }
     });
 
@@ -56,11 +59,15 @@ class SyncManager with WidgetsBindingObserver {
         if (results.any((r) => r != ConnectivityResult.none)) {
           AppLogger.d("Internet restored. Triggering sync...");
           unawaited(triggerSyncAll());
+          unawaited(_syncUserData());
         }
       });
 
       // Initial content check (Download global content if local is empty)
       await _checkInitialContentSync();
+      
+      // Also pull latest user specific data (progress, custom tasks, repetitions)
+      await _syncUserData();
     }));
 
     _safetyTimer = Timer.periodic(const Duration(minutes: 30), (_) => unawaited(triggerSyncAll()));
@@ -75,12 +82,48 @@ class SyncManager with WidgetsBindingObserver {
 
     final localCount = await _isar.localContents.count();
     if (localCount == 0) {
-      AppLogger.d("Local content is empty. Triggering global content download...");
+      AppLogger.d("Local content is empty. Triggering full user data download...");
+      
+      // 1. Download Global Library
       await _contentSync.downloadAllGlobalContent();
+      
+      // 2. Download User Private Data
+      await _syncUserData();
+
       AppLogger.d("DEBUG: Initial sync broadcast triggered.");
       _eventController.add(SyncEvent(SyncEventType.initialSyncComplete));
     } else {
-      AppLogger.d("Local content already exists ($localCount items). Skipping initial sync.");
+      AppLogger.d("Local content already exists ($localCount items). Skipping initial content sync.");
+    }
+  }
+
+  Future<void> _syncUserData({bool force = false}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    if (_isSyncingUserData) {
+      AppLogger.d("Sync: User data sync already in progress. Skipping.");
+      return;
+    }
+
+    _isSyncingUserData = true;
+    AppLogger.d("Sync: Pulling user data (progress, repetitions, custom tasks) on startup...");
+    
+    try {
+      // Parallel pull for all user collections
+      await Future.wait([
+        _profileSync.download('main'),
+        _progressSync.downloadAll(),
+        _repetitionSync.downloadAll(),
+        _customTaskSync.downloadAll(),
+      ]);
+      
+      AppLogger.d("Sync: User data pull complete.");
+      _eventController.add(SyncEvent(SyncEventType.userDataSyncComplete));
+    } catch (e) {
+      AppLogger.e("Sync: User data pull failed", e);
+    } finally {
+      _isSyncingUserData = false;
     }
   }
 
@@ -93,9 +136,10 @@ class SyncManager with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      AppLogger.d("App backgrounded/closed. Triggering final sync...");
-      triggerSyncAll();
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.detached) {
+      AppLogger.d("App lifecycle change: $state. Triggering background sync...");
+      // Use unawaited to avoid blocking the lifecycle transition itself
+      unawaited(triggerSyncAll());
     }
   }
 
@@ -103,7 +147,7 @@ class SyncManager with WidgetsBindingObserver {
     _idleTimer?.cancel();
     _idleTimer = Timer(const Duration(minutes: 5), () {
       AppLogger.d("User idle for 5 minutes. Triggering sync...");
-      triggerSyncAll();
+      unawaited(triggerSyncAll());
     });
   }
 
@@ -111,17 +155,22 @@ class SyncManager with WidgetsBindingObserver {
     final dirtyDocs = await _isar.localSyncMetadatas.filter().isDirtyEqualTo(true).findAll();
     
     if (dirtyDocs.isEmpty) {
-      AppLogger.d("No dirty documents to sync.");
+      AppLogger.d("Sync: No dirty documents found.");
       return;
     }
 
-    AppLogger.d("Found ${dirtyDocs.length} dirty documents. Syncing...");
+    AppLogger.d("Sync: Found ${dirtyDocs.length} dirty documents across collections. Starting batch upload...");
 
-    await _syncCollection(_progressSync);
-    await _syncCollection(_repetitionSync);
-    await _syncCollection(_profileSync);
-    await _syncCollection(_contentSync);
-    await _syncCollection(_customTaskSync);
+    final List<Future<void>> syncTasks = [
+      _syncCollection(_progressSync),
+      _syncCollection(_repetitionSync),
+      _syncCollection(_profileSync),
+      _syncCollection(_contentSync),
+      _syncCollection(_customTaskSync),
+    ];
+
+    await Future.wait(syncTasks);
+    AppLogger.d("Sync: Batch upload session complete.");
   }
 
   Future<void> _syncCollection(dynamic service) async {

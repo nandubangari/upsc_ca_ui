@@ -23,6 +23,7 @@ import 'package:upsc_ca_ui/core/utils/task_categorizer.dart';
 class DashboardProvider with ChangeNotifier {
   DashboardData? _data;
   bool _isLoading = false;
+  bool _isInitialLoading = false;
   bool _isSyncing = false;
   String? _error;
   String? _syncStatus;
@@ -57,13 +58,26 @@ class DashboardProvider with ChangeNotifier {
   final RepetitionSyncService _repetitionSync = RepetitionSyncService();
 
   DashboardProvider() {
+    _checkInitialLoadingStatus();
     _listenToSyncEvents();
+  }
+
+  Future<void> _checkInitialLoadingStatus() async {
+    final localCount = await IsarService.isar.localContents.count();
+    if (localCount == 0) {
+      _isInitialLoading = true;
+      notifyListeners();
+    }
   }
 
   void _listenToSyncEvents() {
     SyncManager().events.listen((event) {
       if (event.type == SyncEventType.initialSyncComplete) {
         AppLogger.d("DEBUG: Initial sync complete event received in DashboardProvider. Reloading data...");
+        _isInitialLoading = false;
+        unawaited(loadDashboardData());
+      } else if (event.type == SyncEventType.userDataSyncComplete) {
+        AppLogger.d("DEBUG: User data sync complete event received in DashboardProvider. Reloading data...");
         unawaited(loadDashboardData());
       }
     });
@@ -71,6 +85,7 @@ class DashboardProvider with ChangeNotifier {
 
   DashboardData? get data => _data;
   bool get isLoading => _isLoading;
+  bool get isInitialLoading => _isInitialLoading;
   bool get isSyncing => _isSyncing;
   String? get error => _error;
   String? get syncStatus => _syncStatus;
@@ -373,15 +388,12 @@ class DashboardProvider with ChangeNotifier {
       final localCount = await IsarService.isar.localContents.count();
       if (localCount == 0) {
         AppLogger.d("Dashboard loading: No local data found. Showing skeleton until initial sync...");
-        // Keep _isLoading = true and return. NotifyListeners was called at start of method.
+        _isInitialLoading = true;
+        _isLoading = false;
+        notifyListeners();
         return;
-      }
-
-      // Step 3: Morning fetch when the app opens
-      if (_lastFetchDate != todayStr) {
-        AppLogger.d("New day detected. Performing morning fetch for due repetitions...");
-        await _repetitionSync.downloadAll();
-        _lastFetchDate = todayStr;
+      } else {
+        _isInitialLoading = false;
       }
 
       _repetitionTasks = await _repetitionSync.getAllRepetitions();
@@ -417,8 +429,53 @@ class DashboardProvider with ChangeNotifier {
     try {
       await _repository.addCustomTask(isoDate, item);
       await loadDashboardData();
+      // 🟢 Trigger Firestore sync for the custom task
+      unawaited(_repository.syncCustomTasks(isoDate));
     } catch (e) {
       _error = "Failed to add task: $e";
+      notifyListeners();
+    }
+  }
+
+  /// Deletes a custom task
+  Future<void> deleteCustomTask(String date, String articleUrl) async {
+    final parsedDate = DateFormatter.parseAny(date);
+    final isoDate = DateFormatter.toIso(parsedDate);
+
+    try {
+      await _repository.deleteCustomTask(isoDate, articleUrl);
+      
+      // Optimistic update: Remove from local memory before full reload
+      if (_data != null) {
+        final List<DashboardTask> updatedAllTasks = [];
+        for (var task in _data!.allTasks) {
+          if (task.date == date) {
+            final List<ArticleModel> updatedArticles = task.articles
+                .where((a) => a.url != articleUrl)
+                .toList();
+            updatedAllTasks.add(task.copyWith(articles: updatedArticles));
+          } else {
+            updatedAllTasks.add(task);
+          }
+        }
+
+        // Recategorize with the modified task list
+        _data = TaskCategorizer.categorize(
+          allTasks: updatedAllTasks,
+          daysLeft: _data!.daysLeft,
+          repetitions: _repetitionTasks,
+        );
+        _updateInternalStateFromData();
+        notifyListeners();
+      }
+      
+      // Full background reload to keep in sync
+      unawaited(loadDashboardData());
+      // 🟢 Trigger Firestore sync for the deletion
+      unawaited(_repository.syncCustomTasks(isoDate));
+    } catch (e) {
+      AppLogger.e("Failed to delete custom task", e);
+      _error = "Failed to delete task: $e";
       notifyListeners();
     }
   }

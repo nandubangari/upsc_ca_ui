@@ -64,6 +64,11 @@ class IsarDashboardService {
           .documentIdStartsWith("${uid}_progress_")
           .findAll();
 
+      final customTasksDocsRaw = await _isar.localSyncMetadatas.filter()
+          .collectionEqualTo("customTasks")
+          .documentIdStartsWith("${uid}_customTasks_")
+          .findAll();
+
       int daysLeft = 0;
       if (profile != null) {
         if (profile.examDate != null) {
@@ -76,6 +81,7 @@ class IsarDashboardService {
       return await compute(_processDashboardData, {
         'localContentRaw': localContentRaw,
         'progressDocsRaw': progressDocsRaw,
+        'customTasksDocsRaw': customTasksDocsRaw,
         'repetitions': repetitions,
         'daysLeft': daysLeft,
         'articleSources': profile?.articleSources ?? {},
@@ -100,6 +106,7 @@ class IsarDashboardService {
   static Map<String, dynamic> _processDashboardData(Map<String, dynamic> params) {
     final List<LocalContent> localContentRaw = params['localContentRaw'];
     final List<LocalSyncMetadata> progressDocsRaw = params['progressDocsRaw'];
+    final List<LocalSyncMetadata> customTasksDocsRaw = params['customTasksDocsRaw'] ?? [];
     final List<RepetitionTask> repetitions = params['repetitions'] ?? [];
     final int daysLeft = params['daysLeft'];
     final Map<String, bool> articleSourcesPref = Map<String, bool>.from(params['articleSources'] ?? {});
@@ -117,6 +124,7 @@ class IsarDashboardService {
 
     final Map<String, DashboardTask> taskMap = {};
 
+    // 1. Process regular local content
     for (var item in localContentRaw) {
       final dateStr = item.date;
       final taskDate = _isoToAppDateStatic(dateStr);
@@ -177,6 +185,56 @@ class IsarDashboardService {
           completedAt: completedAt,
           date: dateStr,
         ));
+      }
+    }
+
+    // 2. Process Custom Tasks from metadata
+    for (var doc in customTasksDocsRaw) {
+      try {
+        final Map<String, dynamic> data = jsonDecode(doc.localData);
+        data.forEach((dateStr, dayContent) {
+          if (dayContent is Map<String, dynamic> && dayContent.containsKey('articles')) {
+            final taskDate = _isoToAppDateStatic(dateStr);
+            taskMap.putIfAbsent(dateStr, () => DashboardTask(
+              date: taskDate,
+              articlesDone: 0,
+              totalArticles: 0,
+              quizzesDone: 0,
+              totalQuizzes: 0,
+              articles: [],
+              quizzes: [],
+            ));
+
+            final task = taskMap[dateStr]!;
+            final articlesMap = dayContent['articles'] as Map<String, dynamic>;
+            
+            articlesMap.forEach((url, artJson) {
+              final art = ArticleModel.fromJson(artJson as Map<String, dynamic>);
+              
+              // Only add if not already present (custom tasks can overlap with scraped ones if URLs match)
+              if (!task.articles.any((a) => a.url == art.url)) {
+                // Check progress for custom task too
+                bool isCompleted = art.isCompleted;
+                String? completedAt = art.completedAt;
+                
+                final dt = DateTime.tryParse(dateStr);
+                if (dt != null) {
+                  final monthId = "${dt.year}_${dt.month.toString().padLeft(2, '0')}";
+                  final contentId = art.url?.hashCode.toString() ?? art.title.hashCode.toString();
+                  final progressVal = allProgress['completed']?[monthId]?[dateStr]?['articles']?[contentId];
+                  if (progressVal != null) {
+                    isCompleted = true;
+                    if (progressVal is String) completedAt = progressVal;
+                  }
+                }
+
+                task.articles.add(art.copyWith(isCompleted: isCompleted, completedAt: completedAt));
+              }
+            });
+          }
+        });
+      } catch (e) {
+        // Silent failure in isolate
       }
     }
 

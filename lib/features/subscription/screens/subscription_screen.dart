@@ -17,6 +17,7 @@ class SubscriptionScreen extends StatefulWidget {
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   String _selectedPlan = 'yearly';
   bool _agreeToTerms = false;
+  bool _hasPopped = false;
 
   @override
   void initState() {
@@ -35,7 +36,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       body: Consumer<SubscriptionProvider>(
         builder: (context, provider, child) {
           // React to global premium state
-          if (provider.isPremium) {
+          if (provider.isPremium && !_hasPopped) {
+            _hasPopped = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted && Navigator.canPop(context)) {
                 Navigator.pop(context);
@@ -47,10 +49,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           }
 
           if (provider.errorMessage != null) {
+            final error = provider.errorMessage!;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
+                provider.clearErrorMessage();
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(provider.errorMessage!)),
+                  SnackBar(content: Text(error)),
                 );
               }
             });
