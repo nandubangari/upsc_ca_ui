@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -61,8 +62,14 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
 
   @override
   void dispose() {
-    // Notify provider that reader is closed using the cached reference
-    _provider?.setReaderOpen(false);
+    // 🟢 FIX: Wrap in post-frame callback to avoid "setState during build" errors
+    // when the provider notifies listeners (like the Dashboard) during unmounting.
+    final provider = _provider;
+    if (provider != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        provider.setReaderOpen(false);
+      });
+    }
     _pageController.dispose();
     super.dispose();
   }
@@ -439,6 +446,7 @@ class _ArticleContentViewState extends State<ArticleContentView> {
                           backgroundColor: backgroundColor,
                           padding: hPadding,
                           topPadding: mediaQuery.padding.top,
+                          onOpenInBrowser: () => unawaited(_launchUrl(widget.url)),
                         ),
                       ),
 
@@ -888,6 +896,7 @@ class _StickyTitleDelegate extends SliverPersistentHeaderDelegate {
   final Color backgroundColor;
   final double padding;
   final double topPadding;
+  final VoidCallback onOpenInBrowser;
 
   _StickyTitleDelegate({
     required this.title,
@@ -896,6 +905,7 @@ class _StickyTitleDelegate extends SliverPersistentHeaderDelegate {
     required this.backgroundColor,
     required this.padding,
     required this.topPadding,
+    required this.onOpenInBrowser,
   });
 
   @override
@@ -905,24 +915,49 @@ class _StickyTitleDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final progress = shrinkOffset / maxExtent;
-    final titleSize = Tween<double>(begin: isTablet ? 26 : 22, end: isTablet ? 18 : 16).transform(progress.clamp(0, 1));
+    final progress = (shrinkOffset / (maxExtent - minExtent)).clamp(0.0, 1.0);
+    final titleSize = Tween<double>(begin: isTablet ? 26 : 22, end: isTablet ? 18 : 16).transform(progress);
     
+    // 🟢 CRITICAL FIX: The container must have a height that satisfies SliverGeometry validation.
+    // The height should ideally match the current extent of the sliver.
+    final currentExtent = math.max(minExtent, maxExtent - shrinkOffset);
+
     return Container(
+      height: currentExtent,
       color: backgroundColor.withValues(alpha: progress.clamp(0.0, 0.95)),
       padding: EdgeInsets.fromLTRB(padding, topPadding + 10, padding, 10),
-      alignment: Alignment.centerLeft,
-      child: Text(
-        title,
-        maxLines: progress > 0.5 ? 1 : 3,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: isDark ? Colors.white : Colors.black87,
-          fontSize: titleSize,
-          fontWeight: FontWeight.w900,
-          height: 1.15,
-          letterSpacing: -0.5,
-        ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              maxLines: progress > 0.5 ? 1 : 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
+                fontSize: titleSize,
+                fontWeight: FontWeight.w900,
+                height: 1.15,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: IconButton(
+              onPressed: onOpenInBrowser,
+              icon: Icon(
+                Icons.open_in_new_rounded,
+                size: isTablet ? 20 : 18,
+                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.5),
+              ),
+              tooltip: 'Open in Browser',
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ],
       ),
     );
   }

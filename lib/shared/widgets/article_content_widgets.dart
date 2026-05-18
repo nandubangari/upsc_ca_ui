@@ -69,7 +69,7 @@ class ZoomableArticleImage extends StatelessWidget {
         opaque: false,
         barrierDismissible: true,
         barrierColor: Colors.black.withValues(alpha: 0.9),
-        pageBuilder: (context, _, __) {
+        pageBuilder: (context, anim1, anim2) {
           return FullScreenImageViewer(imageUrl: imageUrl);
         },
       ),
