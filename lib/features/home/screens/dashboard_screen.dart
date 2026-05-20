@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -40,9 +41,80 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
     
     // Defer heavy data loading until after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_showDisclaimerIfNeeded());
       unawaited(_loadPersonalization());
       unawaited(context.read<DashboardProvider>().loadDashboardData());
     });
+  }
+
+  Future<void> _showDisclaimerIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    final accepted = prefs.getBool('content_disclaimer_accepted') ?? false;
+
+    if (!accepted && mounted) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final primaryColor = Theme.of(context).colorScheme.primary;
+
+      if (!mounted) return;
+
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Text(
+            'Content Disclaimer',
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontWeight: FontWeight.w900,
+              fontSize: 22,
+              letterSpacing: -0.5,
+            ),
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Text(
+                'Prelims Prep does not create, own, or claim ownership of any content accessible through this app. All articles, quizzes, study material, copyrights, and trademarks remain the exclusive property of their respective original publishers. This app solely organizes links to third-party educational content for personal study convenience. We do not host, store, reproduce, or redistribute any third-party content. Any content presentation within the app is for personal readability purposes only. This app is not affiliated with or endorsed by any referenced institution or publisher. Content availability is subject to third-party policies and may change without notice. All intellectual property rights of original owners are fully acknowledged.',
+                style: TextStyle(
+                  color: isDark ? Colors.white.withValues(alpha: 0.7) : Colors.black.withValues(alpha: 0.7),
+                  fontSize: 14,
+                  height: 1.6,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, right: 8),
+              child: TextButton(
+                onPressed: () async {
+                  await prefs.setBool('content_disclaimer_accepted', true);
+                  if (context.mounted) Navigator.pop(context);
+                },
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text(
+                  'I UNDERSTAND',
+                  style: TextStyle(
+                    color: primaryColor,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override

@@ -3,6 +3,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/widgets.dart';
 import 'package:isar/isar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:upsc_ca_ui/data/local/isar_service.dart';
 import 'package:upsc_ca_ui/data/local/models/local_content.dart';
@@ -60,17 +61,61 @@ class SyncManager with WidgetsBindingObserver {
           AppLogger.d("Internet restored. Triggering sync...");
           unawaited(triggerSyncAll());
           unawaited(_syncUserData());
+          unawaited(_checkIncrementalContentUpdate());
         }
       });
 
       // Initial content check (Download global content if local is empty)
       await _checkInitialContentSync();
       
+      // Incremental content check (Check if RTDB has new data)
+      await _checkIncrementalContentUpdate();
+      
       // Also pull latest user specific data (progress, custom tasks, repetitions)
       await _syncUserData();
     }));
 
     _safetyTimer = Timer.periodic(const Duration(minutes: 30), (_) => unawaited(triggerSyncAll()));
+  }
+
+  Future<void> _checkIncrementalContentUpdate() async {
+    final connectivityResults = await Connectivity().checkConnectivity();
+    if (connectivityResults.every((r) => r == ConnectivityResult.none)) return;
+
+    AppLogger.d("Sync: Checking for incremental content updates from RTDB...");
+    
+    try {
+      final remoteTimestamp = await _contentSync.getLastGlobalSyncTimestamp();
+      if (remoteTimestamp == null) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final localTimestamp = prefs.getInt('local_last_global_sync') ?? 0;
+
+      if (remoteTimestamp > localTimestamp) {
+        AppLogger.d("Sync: New remote content detected ($remoteTimestamp > $localTimestamp). Starting incremental sync...");
+        
+        // Find which months need syncing. For simplicity, we sync the last 2 months if there's an update.
+        // A more complex logic could track exactly which days changed, but month-level sync in Isar is efficient.
+        final now = DateTime.now();
+        final months = [
+          DateTime(now.year, now.month, 1),
+          DateTime(now.year, now.month - 1, 1),
+        ];
+
+        for (var month in months) {
+          await _contentSync.syncContentForMonth(month.year, month.month);
+        }
+
+        // Update local timestamp
+        await prefs.setInt('local_last_global_sync', remoteTimestamp);
+        AppLogger.d("Sync: Incremental content sync complete. Broadcast triggered.");
+        _eventController.add(SyncEvent(SyncEventType.initialSyncComplete)); // Reuse this event to trigger Dashboard reload
+      } else {
+        AppLogger.d("Sync: No new remote content detected ($remoteTimestamp <= $localTimestamp).");
+      }
+    } catch (e) {
+      AppLogger.e("Sync: Incremental content check failed", e);
+    }
   }
 
   Future<void> _checkInitialContentSync() async {
@@ -86,6 +131,13 @@ class SyncManager with WidgetsBindingObserver {
       
       // 1. Download Global Library
       await _contentSync.downloadAllGlobalContent();
+      
+      // Update local timestamp after full download
+      final remoteTimestamp = await _contentSync.getLastGlobalSyncTimestamp();
+      if (remoteTimestamp != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('local_last_global_sync', remoteTimestamp);
+      }
       
       // 2. Download User Private Data
       await _syncUserData();

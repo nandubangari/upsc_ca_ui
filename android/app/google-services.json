@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "64937910786",
+    "firebase_url": "https://prelims-prep-ca-default-rtdb.firebaseio.com",
     "project_id": "prelims-prep-ca",
     "storage_bucket": "prelims-prep-ca.firebasestorage.app"
   },
@@ -14,11 +15,19 @@
       },
       "oauth_client": [
         {
-          "client_id": "64937910786-q83rrrmqe7itiohi0g6l3ueh6g7234sh.apps.googleusercontent.com",
+          "client_id": "64937910786-d14btino24hlpp1js0nct9tkj69kb9nl.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.nandu.upsc_ca_ui",
-            "certificate_hash": "d25848abe05525f413e4f01067f94e675fba002e"
+            "certificate_hash": "6eac548c15b32bfed6c74d695ec046030158ceca"
+          }
+        },
+        {
+          "client_id": "64937910786-tb9shdcrooodkjho1h0kvpp0jr8a5nsr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nandu.upsc_ca_ui",
+            "certificate_hash": "d5957663fdebbde53e3caf9bcd661216bb74b577"
           }
         },
         {

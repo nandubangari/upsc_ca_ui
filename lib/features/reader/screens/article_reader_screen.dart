@@ -451,18 +451,17 @@ class _ArticleContentViewState extends State<ArticleContentView> {
                     cacheExtent: 2000, // 🟢 FIX: High cache extent for smoother scroll & better top-scroll recovery
                     physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                     slivers: [
-                      // 🟢 AGGRESSIVE FIX: Use SliverAppBar instead of custom delegate for 100% SliverGeometry stability
                       SliverAppBar(
                         pinned: true,
                         automaticallyImplyLeading: false,
                         backgroundColor: backgroundColor,
                         elevation: 0,
                         scrolledUnderElevation: 0,
-                        toolbarHeight: isTablet ? 110 : 90,
+                        toolbarHeight: isTablet ? 80 : 64,
                         titleSpacing: 0,
+                        centerTitle: false,
                         title: Container(
-                          // 🟢 STABILITY FIX: Use safe area top instead of dynamic padding to keep layout stable
-                          padding: EdgeInsets.fromLTRB(hPadding, mediaQuery.viewPadding.top, hPadding, 0),
+                          padding: EdgeInsets.symmetric(horizontal: hPadding),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [

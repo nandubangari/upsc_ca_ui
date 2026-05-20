@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:upsc_ca_ui/data/services/isar_dashboard_service.dart';
 import 'package:upsc_ca_ui/data/sync/content_sync_service.dart';
 import 'package:upsc_ca_ui/data/sync/progress_sync_service.dart';
@@ -125,6 +126,13 @@ class DashboardRepository {
       
       onStatusUpdate?.call("Finalizing sync metadata...");
       await _contentSync.updateLastGlobalSync();
+
+      // Update local timestamp to match the remote one we just set/updated
+      final remoteTs = await _contentSync.getLastGlobalSyncTimestamp();
+      if (remoteTs != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('local_last_global_sync', remoteTs);
+      }
     } catch (e) {
       AppLogger.e("Coordinated sync failed at loop stage", e);
       // Rethrow to let the provider handle specific errors like LOGIN_REQUIRED
