@@ -2,11 +2,12 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:upsc_ca_ui/core/utils/firebase_cost_tracker.dart';
 import 'package:upsc_ca_ui/shared/models/profile_data.dart';
 import 'package:upsc_ca_ui/data/sync/profile_sync_service.dart';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:upsc_ca_ui/data/local/isar_service.dart';
 import 'package:upsc_ca_ui/data/local/models/local_sync_metadata.dart';
 import 'dart:async';
@@ -18,20 +19,57 @@ class ProfileService {
   
   static ProfileData? _cachedProfile;
 
+  static final _setupCompleteController = StreamController<bool>.broadcast();
+  static Stream<bool> get onSetupComplete => _setupCompleteController.stream;
+
+  Future<bool> isProfileSetupComplete() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final prefs = await SharedPreferences.getInstance();
+    
+    if (user != null) {
+      final userKey = 'is_profile_setup_complete_${user.uid}';
+      if (prefs.containsKey(userKey)) {
+        return prefs.getBool(userKey) ?? false;
+      }
+    }
+    
+    return prefs.getBool('is_profile_setup_complete_v1') ?? false;
+  }
+
+  Future<void> setProfileSetupComplete(bool value) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final prefs = await SharedPreferences.getInstance();
+    
+    if (user != null) {
+      await prefs.setBool('is_profile_setup_complete_${user.uid}', value);
+    }
+    await prefs.setBool('is_profile_setup_complete_v1', value);
+    
+    AppLogger.d("Profile setup complete status set to: $value");
+    if (value) {
+      _setupCompleteController.add(true);
+    }
+  }
+
   /// Saves profile data local-first and triggers background sync.
-  Future<void> saveProfile(ProfileData data) async {
+  Future<void> saveProfile(ProfileData data, {bool setComplete = false}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     await _profileSync.updateLocal('main', data.toFirestore());
     _cachedProfile = data;
     
+    // If explicitly requested, mark setup as complete
+    if (setComplete) {
+      await setProfileSetupComplete(true);
+    }
+    
     unawaited(_profileSync.sync('main'));
   }
 
   /// Compatibility method for ProfileSetupScreen
-  Future<void> saveProfileToCloud(String uid, ProfileData data) async {
-    await saveProfile(data);
+  Future<void> saveProfileToCloud(String uid, ProfileData data, {bool setComplete = false}) async {
+    await saveProfile(data, setComplete: setComplete);
   }
 
   /// Fetches profile data from Isar (offline-first).
@@ -55,6 +93,8 @@ class ProfileService {
       try {
         final data = jsonDecode(metadata.localData);
         _cachedProfile = ProfileData.fromFirestore(Map<String, dynamic>.from(data));
+        // If we found it in Isar, and it wasn't just migrated, it's definitely setup
+        // Note: isProfileSetupComplete is set to true when saveProfile is called with setComplete: true
         return _cachedProfile;
       } catch (e) {
         AppLogger.e("Failed to parse local profile", e);
@@ -70,6 +110,8 @@ class ProfileService {
       try {
         final data = jsonDecode(freshMetadata.localData);
         _cachedProfile = ProfileData.fromFirestore(Map<String, dynamic>.from(data));
+        // If we found it in Cloud, it's definitely setup
+        unawaited(setProfileSetupComplete(true));
         return _cachedProfile;
       } catch (e) {
         AppLogger.e("Failed to parse downloaded profile", e);

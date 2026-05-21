@@ -39,6 +39,7 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   bool _isInitialized = false;
   DashboardProvider? _provider;
   List<Map<String, dynamic>> _stableFlattened = [];
+  int _currentPageIndex = 0;
 
   @override
   void initState() {
@@ -98,6 +99,7 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
         // Dispose old and create new with correct page
         _pageController.dispose();
         _pageController = PageController(initialPage: startIndex);
+        _currentPageIndex = startIndex;
         _isInitialized = true;
 
         // Record initial last viewed
@@ -124,7 +126,9 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
   }
 
   void _markAsCompleted(DashboardTask task, ArticleModel article) {
-    if (!article.isCompleted) {
+    // FIX: Check latest completion status from provider to avoid redundant calls
+    final isAlreadyCompleted = _provider?.isArticleCompleted(article.url) ?? article.isCompleted;
+    if (!isAlreadyCompleted) {
       unawaited(context.read<DashboardProvider>().markArticleAsCompleted(task, article));
     }
   }
@@ -171,6 +175,15 @@ class _ArticleReaderScreenState extends State<ArticleReaderScreen> {
             scrollDirection: Axis.vertical,
             itemCount: _stableFlattened.length,
             onPageChanged: (index) {
+              // 🟢 NAVIGATION COMPLETION: If moving forward, mark previous as completed
+              if (index > _currentPageIndex) {
+                final prevItem = _stableFlattened[_currentPageIndex];
+                final prevTask = prevItem['task'] as DashboardTask;
+                final prevArticle = prevItem['article'] as ArticleModel;
+                _markAsCompleted(prevTask, prevArticle);
+              }
+              
+              _currentPageIndex = index;
               final article = _stableFlattened[index]['article'] as ArticleModel;
               if (article.url != null) {
                 unawaited(provider.setLastViewedUrl(article.url!));

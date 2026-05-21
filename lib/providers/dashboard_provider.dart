@@ -526,7 +526,10 @@ class DashboardProvider with ChangeNotifier {
 
     // 1. Update Local State IMMEDIATELY (Optimistic Update)
     if (_data != null) {
-      final updatedArticles = task.articles.map((a) {
+      // FIX: Use latest task state from our map to avoid stale data overwrites
+      final currentTask = _taskMap[task.date] ?? task;
+      
+      final updatedArticles = currentTask.articles.map((a) {
         if (a.url == article.url) {
           return a.copyWith(isCompleted: true, completedAt: completedAt);
         }
@@ -534,7 +537,7 @@ class DashboardProvider with ChangeNotifier {
       }).toList();
 
       final articlesDone = updatedArticles.where((a) => a.isCompleted).length;
-      final updatedTask = task.copyWith(
+      final updatedTask = currentTask.copyWith(
         articles: updatedArticles,
         articlesDone: articlesDone,
       );
@@ -585,7 +588,10 @@ class DashboardProvider with ChangeNotifier {
 
     // 1. Update Local State IMMEDIATELY (Optimistic Update)
     if (_data != null) {
-      final updatedQuizzes = task.quizzes.map((q) {
+      // FIX: Use latest task state from our map to avoid stale data overwrites
+      final currentTask = _taskMap[task.date] ?? task;
+
+      final updatedQuizzes = currentTask.quizzes.map((q) {
         if (q.title == quiz.title && q.source == quiz.source) {
           return q.copyWith(isCompleted: true, completedAt: completedAt);
         }
@@ -593,7 +599,7 @@ class DashboardProvider with ChangeNotifier {
       }).toList();
 
       final quizzesDone = updatedQuizzes.where((q) => q.isCompleted).length;
-      final updatedTask = task.copyWith(
+      final updatedTask = currentTask.copyWith(
         quizzes: updatedQuizzes,
         quizzesDone: quizzesDone,
       );

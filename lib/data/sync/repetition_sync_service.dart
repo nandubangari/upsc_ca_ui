@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:upsc_ca_ui/data/sync/firestore_sync_service.dart';
 import 'package:upsc_ca_ui/shared/models/repetition_task.dart';
 import 'package:upsc_ca_ui/data/local/models/local_sync_metadata.dart';

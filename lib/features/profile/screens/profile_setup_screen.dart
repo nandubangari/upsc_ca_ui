@@ -14,6 +14,8 @@ import 'package:upsc_ca_ui/core/config/app_constants.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 import 'package:upsc_ca_ui/features/home/screens/dashboard_screen.dart';
 import 'package:upsc_ca_ui/core/utils/date_formatter.dart';
+import 'package:upsc_ca_ui/shared/widgets/modern_loading_screen.dart';
+import 'package:upsc_ca_ui/data/sync/sync_manager.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key});
@@ -43,6 +45,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   bool _isPremium = false;
 
   bool _isDataLoading = true;
+  double _loadingProgress = 0.0;
+  String _loadingStatus = "Loading...";
+
+  StreamSubscription? _syncSubscription;
 
   @override
   void initState() {
@@ -57,13 +63,31 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     unawaited(_loadProfileData());
   }
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _syncSubscription?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadProfileData() async {
+    if (!mounted) return;
+    setState(() {
+      _isDataLoading = true;
+      _loadingProgress = 0.1;
+      _loadingStatus = "Connecting to services...";
+    });
     try {
       final user = _authRepository.currentUser;
       final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
       
       ProfileData? cloudData;
       if (user != null) {
+        if (!mounted) return;
+        setState(() {
+          _loadingProgress = 0.3;
+          _loadingStatus = "Checking for existing profile...";
+        });
         cloudData = await _profileService.fetchProfileFromCloud(user.uid);
         if (cloudData != null) {
           // Update local Isar cache to stay in sync with Firestore
@@ -71,6 +95,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         }
       }
       
+      if (!mounted) return;
+      setState(() {
+        _loadingProgress = 0.6;
+        _loadingStatus = "Loading defaults...";
+      });
       final ProfileData localData = await _profileService.fetchProfileFromJson();
 
       if (mounted) {
@@ -123,29 +152,28 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           }
 
           _isDataLoading = false;
+          _loadingProgress = 1.0;
         });
       }
     } catch (e) {
       AppLogger.d('Error loading profile: $e');
       if (mounted) {
-        setState(() => _isDataLoading = false);
+        setState(() {
+          _isDataLoading = false;
+          _loadingProgress = 1.0;
+        });
       }
     }
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     if (_isDataLoading) {
-      return Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary, strokeWidth: 1),
-        ),
+      return ModernLoadingScreen(
+        progress: _loadingProgress,
+        status: _loadingStatus,
+        title: Navigator.canPop(context) ? 'LOADING PROFILE' : 'SETTING UP YOUR SPACE',
       );
     }
 
@@ -857,7 +885,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     
     return GestureDetector(
       onTap: () async {
-        setState(() => _isDataLoading = true);
+        setState(() {
+          _isDataLoading = true;
+          _loadingProgress = 0.1;
+          _loadingStatus = "Finalizing your profile...";
+        });
         
         final user = _authRepository.currentUser;
         if (user != null) {
@@ -896,8 +928,54 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             purchasePlatform: _fullProfile?.purchasePlatform,
             lastValidationAt: _fullProfile?.lastValidationAt,
           );
-          await _profileService.saveProfileToCloud(user.uid, profile);
+          
+          if (!mounted) return;
+          setState(() {
+            _loadingProgress = 0.4;
+            _loadingStatus = "Saving to secure cloud...";
+          });
+          await _profileService.saveProfileToCloud(user.uid, profile, setComplete: true);
+          
+          // Check for sync status now that profile is saved
+          await SyncManager().checkSyncStatus();
+          
+          // Check if initial sync is in progress or needs to be started
+          if (SyncManager().isInitialSyncInProgress) {
+            if (!mounted) return;
+            setState(() {
+              _loadingProgress = 0.6;
+              _loadingStatus = "Synchronizing global library...";
+            });
+            
+            final completer = Completer<void>();
+            _syncSubscription?.cancel();
+            _syncSubscription = SyncManager().events.listen((event) {
+              if (event.type == SyncEventType.progressUpdate && event.progress != null && event.status != null) {
+                if (mounted) {
+                  setState(() {
+                    _loadingProgress = 0.6 + (event.progress! * 0.35); // Scale sync progress to 60-95%
+                    _loadingStatus = event.status!;
+                  });
+                }
+              } else if (event.type == SyncEventType.initialSyncComplete) {
+                if (!completer.isCompleted) completer.complete();
+              }
+            });
+            
+            await completer.future;
+            await _syncSubscription?.cancel();
+            _syncSubscription = null;
+          }
         }
+
+        if (!mounted) return;
+        setState(() {
+          _loadingProgress = 1.0;
+          _loadingStatus = "All set!";
+        });
+        
+        // Small delay to show 100%
+        await Future.delayed(const Duration(milliseconds: 500));
 
         if (!mounted) return;
         setState(() => _isDataLoading = false);

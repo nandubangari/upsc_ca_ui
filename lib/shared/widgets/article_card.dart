@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:upsc_ca_ui/shared/models/article_model.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
 import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
-import 'package:upsc_ca_ui/shared/widgets/premium_gate.dart';
 import 'package:upsc_ca_ui/core/utils/link_launcher_utils.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 

@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:upsc_ca_ui/core/utils/firebase_cost_tracker.dart';
 import 'package:upsc_ca_ui/data/local/isar_service.dart';

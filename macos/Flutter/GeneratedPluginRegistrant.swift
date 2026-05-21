@@ -13,7 +13,7 @@ import firebase_core
 import firebase_database
 import google_sign_in_ios
 import in_app_purchase_storekit
-import isar_flutter_libs
+import isar_community_flutter_libs
 import shared_preferences_foundation
 import sqflite_darwin
 import url_launcher_macos

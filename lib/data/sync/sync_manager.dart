@@ -2,23 +2,25 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/widgets.dart';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:upsc_ca_ui/data/local/isar_service.dart';
-import 'package:upsc_ca_ui/data/local/models/local_content.dart';
 import 'package:upsc_ca_ui/data/local/models/local_sync_metadata.dart';
+import 'package:upsc_ca_ui/data/services/profile_service.dart';
 import 'progress_sync_service.dart';
 import 'repetition_sync_service.dart';
 import 'profile_sync_service.dart';
 import 'content_sync_service.dart';
 import 'custom_task_sync_service.dart';
 
-enum SyncEventType { initialSyncComplete, userDataSyncComplete }
+enum SyncEventType { initialSyncComplete, userDataSyncComplete, progressUpdate }
 
 class SyncEvent {
   final SyncEventType type;
-  SyncEvent(this.type);
+  final double? progress;
+  final String? status;
+  SyncEvent(this.type, {this.progress, this.status});
 }
 
 class SyncManager with WidgetsBindingObserver {
@@ -36,61 +38,94 @@ class SyncManager with WidgetsBindingObserver {
   Timer? _safetyTimer;
   Timer? _idleTimer;
   
+  bool _initialized = false;
   bool _isSyncingUserData = false;
+  bool _isInitialSyncInProgress = false;
+  bool _isIncrementalSyncInProgress = false;
+  bool _isCheckingStatus = false;
+  bool get isInitialSyncInProgress => _isInitialSyncInProgress;
 
   final _eventController = StreamController<SyncEvent>.broadcast();
   Stream<SyncEvent> get events => _eventController.stream;
 
   void init() {
+    if (_initialized) return;
+    _initialized = true;
+
     WidgetsBinding.instance.addObserver(this);
     
     // 1. Listen for auth changes to trigger sync
     FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null) {
         AppLogger.d("User logged in. Checking sync status...");
-        unawaited(_checkInitialContentSync());
-        unawaited(_syncUserData());
+        unawaited(checkSyncStatus());
       }
     });
 
-    // 2. Defer connectivity listener and initial checks to avoid blocking startup frames
+    // 2. Listen for profile setup completion (e.g. for existing users downloading profile from cloud)
+    ProfileService.onSetupComplete.listen((complete) {
+      if (complete) {
+        AppLogger.d("Profile setup complete detected. Triggering sync check...");
+        unawaited(checkSyncStatus());
+      }
+    });
+
+    // 3. Defer connectivity listener and initial checks to avoid blocking startup frames
     unawaited(Future.microtask(() async {
       // Connectivity listener
       Connectivity().onConnectivityChanged.listen((results) {
         if (results.any((r) => r != ConnectivityResult.none)) {
           AppLogger.d("Internet restored. Triggering sync...");
+          unawaited(checkSyncStatus());
           unawaited(triggerSyncAll());
-          unawaited(_syncUserData());
-          unawaited(_checkIncrementalContentUpdate());
         }
       });
 
-      // Initial content check (Download global content if local is empty)
-      await _checkInitialContentSync();
-      
-      // Incremental content check (Check if RTDB has new data)
-      await _checkIncrementalContentUpdate();
-      
-      // Also pull latest user specific data (progress, custom tasks, repetitions)
-      await _syncUserData();
+      await checkSyncStatus();
     }));
 
     _safetyTimer = Timer.periodic(const Duration(minutes: 30), (_) => unawaited(triggerSyncAll()));
   }
 
+  /// Public entry point to check and trigger all sync types based on readiness
+  Future<void> checkSyncStatus() async {
+    if (_isCheckingStatus) return;
+    
+    final isReady = await ProfileService().isProfileSetupComplete();
+    if (!isReady) {
+      AppLogger.d("Skip sync checks: Profile setup not complete.");
+      return;
+    }
+
+    _isCheckingStatus = true;
+    try {
+      await Future.wait([
+        _checkInitialContentSync(),
+        _checkIncrementalContentUpdate(),
+        _syncUserData(),
+      ]);
+    } finally {
+      _isCheckingStatus = false;
+    }
+  }
+
   Future<void> _checkIncrementalContentUpdate() async {
+    if (_isIncrementalSyncInProgress) return;
+    
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       AppLogger.d("Skip incremental sync: No user logged in.");
       return;
     }
 
-    final connectivityResults = await Connectivity().checkConnectivity();
-    if (connectivityResults.every((r) => r == ConnectivityResult.none)) return;
-
-    AppLogger.d("Sync: Checking for incremental content updates from RTDB...");
+    _isIncrementalSyncInProgress = true;
     
     try {
+      final connectivityResults = await Connectivity().checkConnectivity();
+      if (connectivityResults.every((r) => r == ConnectivityResult.none)) return;
+
+      AppLogger.d("Sync: Checking for incremental content updates from RTDB...");
+      
       final remoteTimestamp = await _contentSync.getLastGlobalSyncTimestamp();
       if (remoteTimestamp == null) return;
 
@@ -101,7 +136,6 @@ class SyncManager with WidgetsBindingObserver {
         AppLogger.d("Sync: New remote content detected ($remoteTimestamp > $localTimestamp). Starting incremental sync...");
         
         // Find which months need syncing. For simplicity, we sync the last 2 months if there's an update.
-        // A more complex logic could track exactly which days changed, but month-level sync in Isar is efficient.
         final now = DateTime.now();
         final months = [
           DateTime(now.year, now.month, 1),
@@ -121,10 +155,14 @@ class SyncManager with WidgetsBindingObserver {
       }
     } catch (e) {
       AppLogger.e("Sync: Incremental content check failed", e);
+    } finally {
+      _isIncrementalSyncInProgress = false;
     }
   }
 
   Future<void> _checkInitialContentSync() async {
+    if (_isInitialSyncInProgress) return;
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       AppLogger.d("Skip initial sync: No user logged in.");
@@ -135,10 +173,18 @@ class SyncManager with WidgetsBindingObserver {
     final bool isFullSynced = prefs.getBool('is_full_library_synced_v1') ?? false;
 
     if (!isFullSynced) {
+      _isInitialSyncInProgress = true;
       AppLogger.d("Local content full sync missing. Triggering full global library download...");
+      _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 0.1, status: "Connecting to global library..."));
       
       // 1. Download Global Library
-      await _contentSync.downloadAllGlobalContent();
+      try {
+        await _contentSync.downloadAllGlobalContent(onProgress: (p, s) {
+          _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 0.1 + (p * 0.5), status: s));
+        });
+      } catch (e) {
+        AppLogger.e("Full library download failed", e);
+      }
       
       // Update local timestamp and full sync flag after full download
       final remoteTimestamp = await _contentSync.getLastGlobalSyncTimestamp();
@@ -148,9 +194,12 @@ class SyncManager with WidgetsBindingObserver {
       await prefs.setBool('is_full_library_synced_v1', true);
       
       // 2. Download User Private Data
+      _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 0.7, status: "Synchronizing your progress..."));
       await _syncUserData();
 
+      _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 1.0, status: "Synchronization complete!"));
       AppLogger.d("DEBUG: Initial sync broadcast triggered.");
+      _isInitialSyncInProgress = false;
       _eventController.add(SyncEvent(SyncEventType.initialSyncComplete));
     } else {
       AppLogger.d("Global library already fully synced. Skipping initial content sync.");
@@ -212,6 +261,9 @@ class SyncManager with WidgetsBindingObserver {
   }
 
   Future<void> triggerSyncAll() async {
+    final isReady = await ProfileService().isProfileSetupComplete();
+    if (!isReady) return;
+
     final dirtyDocs = await _isar.localSyncMetadatas.filter().isDirtyEqualTo(true).findAll();
     
     if (dirtyDocs.isEmpty) {

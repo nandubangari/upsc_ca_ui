@@ -1,11 +1,8 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:upsc_ca_ui/shared/models/quiz_model.dart';
 import 'package:upsc_ca_ui/shared/models/dashboard_task.dart';
-import 'package:upsc_ca_ui/features/web_view/screens/web_view_screen.dart';
 import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
-import 'package:upsc_ca_ui/shared/widgets/premium_gate.dart';
 import 'package:upsc_ca_ui/core/utils/link_launcher_utils.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
 

@@ -1,4 +1,3 @@
-import 'package:upsc_ca_ui/core/utils/date_formatter.dart';
 
 class RepetitionHistory {
   final int repNumber;

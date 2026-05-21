@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:upsc_ca_ui/core/utils/app_logger.dart';
 import 'package:upsc_ca_ui/core/utils/firebase_cost_tracker.dart';
 import 'package:upsc_ca_ui/data/local/isar_service.dart';
@@ -134,8 +134,9 @@ class ContentSyncService extends FirestoreSyncService {
     }
   }
 
-  Future<void> downloadAllGlobalContent() async {
+  Future<void> downloadAllGlobalContent({Function(double, String)? onProgress}) async {
     AppLogger.d("Checking if global content download is needed...");
+    onProgress?.call(0.0, "Checking for remote content...");
     try {
       final ref = _db.ref('content');
       final snapshot = await ref.get();
@@ -144,8 +145,60 @@ class ContentSyncService extends FirestoreSyncService {
 
       if (!snapshot.exists || snapshot.value == null) {
         AppLogger.d("No global content found in RTDB.");
+        onProgress?.call(1.0, "No content to download.");
         return;
       }
+
+      final data = snapshot.value;
+      if (data is! Map) return;
+
+      final Map<dynamic, dynamic> yearsData = Map<dynamic, dynamic>.from(data);
+      List<({int year, int month})> monthsToSync = [];
+
+      for (var yearEntry in yearsData.entries) {
+        final year = int.tryParse(yearEntry.key.toString());
+        if (year == null) continue;
+
+        final monthsData = Map<dynamic, dynamic>.from(yearEntry.value as Map);
+        for (var monthEntry in monthsData.entries) {
+          final month = int.tryParse(monthEntry.key.toString());
+          if (month == null) continue;
+          monthsToSync.add((year: year, month: month));
+        }
+      }
+
+      // Sort months chronologically
+      monthsToSync.sort((a, b) {
+        if (a.year != b.year) return a.year.compareTo(b.year);
+        return a.month.compareTo(b.month);
+      });
+
+      AppLogger.d("Found ${monthsToSync.length} months to sync.");
+
+      for (int i = 0; i < monthsToSync.length; i++) {
+        final item = monthsToSync[i];
+        final progress = i / monthsToSync.length;
+        final monthName = _getMonthName(item.month);
+        onProgress?.call(progress, "Downloading $monthName ${item.year}...");
+        
+        await syncContentForMonth(item.year, item.month);
+      }
+      
+      onProgress?.call(1.0, "Global library download complete.");
+    } catch (e) {
+      AppLogger.e("Failed to download global content", e);
+      onProgress?.call(1.0, "Download failed.");
+    }
+  }
+
+  Future<void> downloadAllGlobalContentLegacy() async {
+    try {
+      final ref = _db.ref('content');
+      final snapshot = await ref.get();
+      
+      FirebaseCostTracker.recordRTDBRead();
+
+      if (!snapshot.exists || snapshot.value == null) return;
 
       final data = snapshot.value;
       final List<LocalContent> allItems = await compute(_parseFullRtdbContent, data);
@@ -186,6 +239,15 @@ class ContentSyncService extends FirestoreSyncService {
       }
     });
     return items;
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    if (month < 1 || month > 12) return month.toString();
+    return months[month - 1];
   }
 
   /// Pushes all existing local content to RTDB for a specific date range.

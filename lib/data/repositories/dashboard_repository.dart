@@ -347,7 +347,7 @@ class DashboardRepository {
         // Quizzes
         for (var quiz in daily.quizzes) {
           final quizId = quiz.title.hashCode.toString();
-          final effectiveSourceId = quiz.source ?? sourceId;
+          final effectiveSourceId = quiz.source;
           dailyItems.add(LocalContent()
             ..contentId = quizId
             ..type = 'quiz'

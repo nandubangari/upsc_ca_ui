@@ -7,7 +7,7 @@ allprojects {
 
 extra["compileSdkVersion"] = 36
 extra["minSdkVersion"] = 21
-extra["targetSdkVersion"] = 34
+extra["targetSdkVersion"] = 35
 
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
@@ -29,7 +29,7 @@ subprojects {
         val android = project.extensions.findByName("android") as? com.android.build.gradle.BaseExtension
         android?.let {
             if (it.namespace == null) {
-                val packageName = if (project.name == "isar_flutter_libs") {
+                val packageName = if (project.name == "isar_flutter_libs" || project.name == "isar_community_flutter_libs") {
                     "dev.isar.isar_flutter_libs"
                 } else {
                     "com.example.${project.name.replace("-", "_").replace(".", "_")}"

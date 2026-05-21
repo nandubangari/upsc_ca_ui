@@ -10,7 +10,7 @@ class FirestoreService {
   Future<void> saveUser(User user) async {
     final userRef = _db.collection('users').doc(user.uid);
     final doc = await userRef.get();
-    final data = doc.data() as Map<String, dynamic>?;
+    final data = doc.data();
 
     // Determine createdAt value outside the Map literal for compiler stability
     final createdAt = (doc.exists && data != null && data.containsKey('createdAt'))

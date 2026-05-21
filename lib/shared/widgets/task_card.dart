@@ -7,7 +7,6 @@ import 'progress_bar.dart';
 import 'package:upsc_ca_ui/features/home/screens/task_detail_screen.dart';
 import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
 import 'package:upsc_ca_ui/shared/widgets/premium_gate.dart';
-import 'package:upsc_ca_ui/features/subscription/screens/subscription_screen.dart';
 
 class TaskCard extends StatelessWidget {
   final String date;

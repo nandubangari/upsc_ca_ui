@@ -2,7 +2,7 @@ import 'firestore_sync_service.dart';
 import 'package:upsc_ca_ui/shared/models/article_model.dart';
 import 'dart:convert';
 import 'package:upsc_ca_ui/data/local/models/local_sync_metadata.dart';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 
 class CustomTaskSyncService extends FirestoreSyncService {
   CustomTaskSyncService() : super(collectionName: 'customTasks');
