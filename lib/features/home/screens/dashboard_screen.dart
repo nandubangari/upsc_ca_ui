@@ -361,24 +361,36 @@ class _DashboardScreenState extends State<DashboardScreen> with AutomaticKeepAli
               const SizedBox(width: 8),
               Row(
                 children: [
-                  Selector<DashboardProvider, (bool, bool)>(
-                    selector: (_, p) => (p.isSyncing, p.isDashboardVisible),
-                    builder: (context, state, _) {
-                      final (isSyncing, isVisible) = state;
-                      return IconButton(
-                        icon: Icon(
-                          isSyncing ? Icons.sync_disabled : Icons.sync,
-                          size: 20,
-                          color: isSyncing ? Colors.grey : primaryColor,
-                        ),
-                        onPressed: (isSyncing || !isVisible) 
-                            ? null 
-                            : () => unawaited(context.read<DashboardProvider>().syncAllArticles(forceRefresh: false, onlyRecent: true)),
-                        tooltip: 'Sync Sources',
+                  Selector<AuthRepository, bool>(
+                    selector: (_, r) => r.currentUser?.email == 'nandukishore.bangari@gmail.com' || 
+                                       r.currentUser?.email == 'bangari.nandukishore@gmail.com',
+                    builder: (context, isAdmin, _) {
+                      if (!isAdmin) return const SizedBox.shrink();
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Selector<DashboardProvider, (bool, bool)>(
+                            selector: (_, p) => (p.isSyncing, p.isDashboardVisible),
+                            builder: (context, state, _) {
+                              final (isSyncing, isVisible) = state;
+                              return IconButton(
+                                icon: Icon(
+                                  isSyncing ? Icons.sync_disabled : Icons.sync,
+                                  size: 20,
+                                  color: isSyncing ? Colors.grey : primaryColor,
+                                ),
+                                onPressed: (isSyncing || !isVisible) 
+                                    ? null 
+                                    : () => unawaited(context.read<DashboardProvider>().syncAllArticles(forceRefresh: false, onlyRecent: true)),
+                                tooltip: 'Sync Sources',
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 4),
+                        ],
                       );
                     },
                   ),
-                  const SizedBox(width: 4),
                   GestureDetector(
                     onTap: () => _showExamDatePicker(context, context.read<DashboardProvider>()),
                     child: Container(

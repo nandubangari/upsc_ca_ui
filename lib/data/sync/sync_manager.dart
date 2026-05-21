@@ -79,6 +79,12 @@ class SyncManager with WidgetsBindingObserver {
   }
 
   Future<void> _checkIncrementalContentUpdate() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      AppLogger.d("Skip incremental sync: No user logged in.");
+      return;
+    }
+
     final connectivityResults = await Connectivity().checkConnectivity();
     if (connectivityResults.every((r) => r == ConnectivityResult.none)) return;
 
@@ -125,19 +131,21 @@ class SyncManager with WidgetsBindingObserver {
       return;
     }
 
-    final localCount = await _isar.localContents.count();
-    if (localCount == 0) {
-      AppLogger.d("Local content is empty. Triggering full user data download...");
+    final prefs = await SharedPreferences.getInstance();
+    final bool isFullSynced = prefs.getBool('is_full_library_synced_v1') ?? false;
+
+    if (!isFullSynced) {
+      AppLogger.d("Local content full sync missing. Triggering full global library download...");
       
       // 1. Download Global Library
       await _contentSync.downloadAllGlobalContent();
       
-      // Update local timestamp after full download
+      // Update local timestamp and full sync flag after full download
       final remoteTimestamp = await _contentSync.getLastGlobalSyncTimestamp();
       if (remoteTimestamp != null) {
-        final prefs = await SharedPreferences.getInstance();
         await prefs.setInt('local_last_global_sync', remoteTimestamp);
       }
+      await prefs.setBool('is_full_library_synced_v1', true);
       
       // 2. Download User Private Data
       await _syncUserData();
@@ -145,7 +153,7 @@ class SyncManager with WidgetsBindingObserver {
       AppLogger.d("DEBUG: Initial sync broadcast triggered.");
       _eventController.add(SyncEvent(SyncEventType.initialSyncComplete));
     } else {
-      AppLogger.d("Local content already exists ($localCount items). Skipping initial content sync.");
+      AppLogger.d("Global library already fully synced. Skipping initial content sync.");
     }
   }
 

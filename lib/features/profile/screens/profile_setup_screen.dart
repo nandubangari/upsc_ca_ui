@@ -49,10 +49,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     super.initState();
     _nameController = TextEditingController();
     _joinedAt = DateTime.now();
-    // Ensure initial start date is at least Jan 1, 2025
-    _startDate = DateTime.now().isBefore(DateTime(2025, 1, 1))
-        ? DateTime(2025, 1, 1)
-        : DateTime.now();
+
+    // Default start date is exactly 10 days ago at 00:00:00
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 10));
+
     unawaited(_loadProfileData());
   }
 
@@ -86,10 +87,16 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           _fullProfile = activeData;
           _joinedAt = activeData.joinedAt;
           
-          // Ensure loaded _startDate is at least Jan 1, 2025
-          _startDate = activeData.startDate.isBefore(DateTime(2025, 1, 1))
-              ? DateTime(2025, 1, 1)
-              : activeData.startDate;
+          final now = DateTime.now();
+          final tenDaysAgo = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 10));
+
+          if (cloudData != null) {
+            // Cap start date at 10 days ago
+            _startDate = cloudData.startDate.isAfter(tenDaysAgo) ? tenDaysAgo : cloudData.startDate;
+          } else {
+            // For new users, force default to 10 days ago
+            _startDate = tenDaysAgo;
+          }
 
           _examDate = activeData.examDate;
           _repetitionIntervals = activeData.repetitionIntervals;
@@ -163,10 +170,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   _buildSubscriptionCard(context),
                   const SizedBox(height: 20),
                   _buildRepetitionIntervalsCard(context),
-                  const SizedBox(height: 20),
-                  _buildSourcesCard(context, 'Article Sources', _articleSources),
-                  const SizedBox(height: 20),
-                  _buildSourcesCard(context, 'Quiz Sources', _quizSources),
                   const SizedBox(height: 40),
                   _buildModernFinishButton(context),
                   const SizedBox(height: 60),
@@ -267,12 +270,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           ),
           const SizedBox(height: 20),
           ModernDatePicker(
-            label: 'PREPARATION START DATE',
+            label: 'PREPARATION START DATE (Max: 10 Days Ago)',
             selectedDate: _startDate,
-            firstDate: DateTime(2025, 1, 1),
-            lastDate: DateTime.now().isBefore(DateTime(2025, 1, 1)) 
-                ? DateTime(2025, 1, 1) 
-                : DateTime.now(),
+            firstDate: DateTime(2024, 1, 1),
+            lastDate: DateTime.now().subtract(const Duration(days: 10)),
             onDateSelected: (date) => setState(() => _startDate = date),
           ),
           const SizedBox(height: 20),
