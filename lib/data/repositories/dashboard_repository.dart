@@ -396,7 +396,7 @@ class DashboardRepository {
       articleId: articleId,
     );
     // 🟢 Immediate sync
-    unawaited(_progressSync.sync("${year}_$monthId"));
+    unawaited(_progressSync.sync(monthId));
     SyncManager().resetIdleTimer();
   }
 
@@ -409,7 +409,7 @@ class DashboardRepository {
       quizId: quizId,
     );
     // 🟢 Immediate sync
-    unawaited(_progressSync.sync("${year}_$monthId"));
+    unawaited(_progressSync.sync(monthId));
     SyncManager().resetIdleTimer();
   }
 

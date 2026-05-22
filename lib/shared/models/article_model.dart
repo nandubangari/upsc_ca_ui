@@ -4,6 +4,7 @@ class ArticleModel {
   final String? url;
   final String? source;
   final bool isCompleted;
+  final bool isInProgress;
   final bool isCustom;
   final String? completedAt;
   final String? date; // Used in some contexts like synced articles
@@ -14,6 +15,7 @@ class ArticleModel {
     this.url,
     this.source,
     this.isCompleted = false,
+    this.isInProgress = false,
     this.isCustom = false,
     this.completedAt,
     this.date,
@@ -29,6 +31,7 @@ class ArticleModel {
       url: json['url'] as String?,
       source: json['source'] as String?,
       isCompleted: json['isCompleted'] as bool? ?? false,
+      isInProgress: json['isInProgress'] as bool? ?? false,
       isCustom: json['isCustom'] as bool? ?? false,
       completedAt: json['completedAt'] as String?,
       date: json['date'] as String?,
@@ -42,6 +45,7 @@ class ArticleModel {
       'url': url,
       'source': source,
       'isCompleted': isCompleted,
+      'isInProgress': isInProgress,
       'isCustom': isCustom,
       'completedAt': completedAt,
       'date': date,
@@ -54,6 +58,7 @@ class ArticleModel {
     String? url,
     String? source,
     bool? isCompleted,
+    bool? isInProgress,
     bool? isCustom,
     String? completedAt,
     String? date,
@@ -64,6 +69,7 @@ class ArticleModel {
       url: url ?? this.url,
       source: source ?? this.source,
       isCompleted: isCompleted ?? this.isCompleted,
+      isInProgress: isInProgress ?? this.isInProgress,
       isCustom: isCustom ?? this.isCustom,
       completedAt: completedAt ?? this.completedAt,
       date: date ?? this.date,

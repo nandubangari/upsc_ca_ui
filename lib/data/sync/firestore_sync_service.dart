@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,6 +14,9 @@ abstract class FirestoreSyncService {
   
   FirebaseFirestore get _db => FirebaseFirestore.instance;
   Isar get isar => _isar;
+
+  // Prevent concurrent syncs for the same document to avoid data corruption or redundant writes
+  static final Map<String, Future<void>> _activeSyncs = {};
 
   FirestoreSyncService({required this.collectionName});
 
@@ -70,69 +74,93 @@ abstract class FirestoreSyncService {
     
     final fullDocId = "${uid}_${collectionName}_$documentId";
 
-    final metadata = await _isar.localSyncMetadatas.filter().documentIdEqualTo(fullDocId).findFirst();
-    if (metadata == null || !metadata.isDirty) return;
-
-    Map<String, dynamic> localData;
-    Map<String, dynamic> lastCloudCopy;
-    
-    try {
-      localData = jsonDecode(metadata.localData);
-      lastCloudCopy = jsonDecode(metadata.lastFetchedCloudCopy);
-    } catch (e) {
-      AppLogger.e("Corruption detected during sync of $fullDocId. Forcing download.");
-      await download(documentId, force: true);
-      return;
+    // Lock based on collection and doc ID
+    if (_activeSyncs.containsKey(fullDocId)) {
+      AppLogger.d("Sync: Already in progress for $fullDocId. Waiting...");
+      return _activeSyncs[fullDocId];
     }
 
-    if (_isEqual(localData, lastCloudCopy)) {
-      AppLogger.d("Local data for $documentId is identical to last cloud copy. Skipping upload.");
-      await _isar.writeTxn(() async {
-        metadata.isDirty = false;
-        await _isar.localSyncMetadatas.put(metadata);
-      });
-      return;
-    }
-
-    final diff = _calculateIncrementalUpdate("", localData, lastCloudCopy);
-    if (diff.isEmpty) {
-      AppLogger.d("Sync: No incremental changes found for $collectionName/$documentId. Marking clean.");
-      await _isar.writeTxn(() async {
-        metadata.isDirty = false;
-        await _isar.localSyncMetadatas.put(metadata);
-      });
-      return;
-    }
-
-    AppLogger.d("Sync: Uploading ${diff.length} fields for $collectionName/$documentId...");
+    final completer = Completer<void>();
+    _activeSyncs[fullDocId] = completer.future;
 
     try {
-      final docRef = _db.collection('users').doc(uid).collection(collectionName).doc(documentId);
+      final metadata = await _isar.localSyncMetadatas.filter().documentIdEqualTo(fullDocId).findFirst();
+      if (metadata == null || !metadata.isDirty) {
+        AppLogger.d("Sync: Skipping $fullDocId - Not found or not dirty.");
+        return;
+      }
+
+      Map<String, dynamic> localData;
+      Map<String, dynamic> lastCloudCopy;
       
-      // If we've never successfully synced this doc and have no cloud copy, 
-      // use set() to avoid the NOT_FOUND error from update().
+      try {
+        localData = jsonDecode(metadata.localData);
+        lastCloudCopy = jsonDecode(metadata.lastFetchedCloudCopy);
+      } catch (e) {
+        AppLogger.e("Corruption detected during sync of $fullDocId. Forcing download.");
+        await download(documentId, force: true);
+        return;
+      }
+
+      if (_isEqual(localData, lastCloudCopy)) {
+        AppLogger.d("Sync: $fullDocId is identical to last cloud copy. Marking clean.");
+        await _isar.writeTxn(() async {
+          metadata.isDirty = false;
+          await _isar.localSyncMetadatas.put(metadata);
+        });
+        return;
+      }
+
+      final diff = _calculateIncrementalUpdate("", localData, lastCloudCopy);
+      if (diff.isEmpty) {
+        AppLogger.d("Sync: No incremental changes found for $fullDocId. Marking clean.");
+        await _isar.writeTxn(() async {
+          metadata.isDirty = false;
+          await _isar.localSyncMetadatas.put(metadata);
+        });
+        return;
+      }
+
+      AppLogger.d("Sync: Uploading ${diff.length} fields for $fullDocId...");
+
+      final docRef = _db.collection('users').doc(uid).collection(collectionName).doc(documentId);
+      final fullPath = "users/$uid/$collectionName/$documentId";
+      final projectId = _db.app.options.projectId;
+
+      AppLogger.d("Sync: Attempting write to Project: $projectId");
+      AppLogger.d("Sync: Target Path: $fullPath");
+      
       if (metadata.lastSyncedAt == 0 && lastCloudCopy.isEmpty) {
-        AppLogger.d("Sync: Document $documentId appears new. Using set().");
+        AppLogger.d("Sync: Document appears new. Using set(merge: true) at path: $fullPath");
         await docRef.set(localData, SetOptions(merge: true));
       } else {
         try {
-          // Use update() to correctly handle dot-notated field paths as nested maps in Firestore.
-          // set(merge: true) treats dots in keys as literal parts of the field name.
+          AppLogger.d("Sync: Updating existing document at path: $fullPath");
           await docRef.update(diff);
         } catch (e) {
-          // If document doesn't exist, update() fails. Fallback to set() with the full nested localData.
           if (e is FirebaseException && (e.code == 'not-found' || e.code == 'NOT_FOUND')) {
-            AppLogger.d("Sync: Document $documentId not found during update. Falling back to set().");
+            AppLogger.d("Sync: Document not found during update. Falling back to set() at path: $fullPath");
             await docRef.set(localData, SetOptions(merge: true));
           } else {
             rethrow;
           }
         }
       }
-      
+
+      // Verification Step
+      final verifySnapshot = await docRef.get(const GetOptions(source: Source.serverAndCache));
+      final isFromCache = verifySnapshot.metadata.isFromCache;
+      final exists = verifySnapshot.exists;
+
       FirebaseCostTracker.recordFirestoreWrite();
 
-      AppLogger.d("Sync: SUCCESS for $collectionName/$documentId");
+      if (!exists) {
+        AppLogger.e("Sync: VERIFICATION FAILED! Document does not exist at path: $fullPath immediately after write.");
+      } else if (isFromCache) {
+        AppLogger.w("Sync: SUCCESS (Local). Note: Data is currently in CACHE and may not be on the server yet. Check your connection.");
+      } else {
+        AppLogger.d("Sync: SUCCESS (Server). Data has been confirmed on the server at: $fullPath");
+      }
 
       await _isar.writeTxn(() async {
         metadata.lastFetchedCloudCopy = metadata.localData;
@@ -141,7 +169,10 @@ abstract class FirestoreSyncService {
         await _isar.localSyncMetadatas.put(metadata);
       });
     } catch (e) {
-      AppLogger.e("Sync: FAILED for $collectionName/$documentId", e);
+      AppLogger.e("Sync: FAILED for $fullDocId", e);
+    } finally {
+      _activeSyncs.remove(fullDocId);
+      completer.complete();
     }
   }
 

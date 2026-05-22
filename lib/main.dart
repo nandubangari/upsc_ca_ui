@@ -15,6 +15,7 @@ import 'package:upsc_ca_ui/features/profile/screens/profile_setup_screen.dart';
 import 'package:upsc_ca_ui/providers/dashboard_provider.dart';
 import 'package:upsc_ca_ui/providers/theme_provider.dart';
 import 'package:upsc_ca_ui/providers/subscription_provider.dart';
+import 'package:upsc_ca_ui/providers/initialization_provider.dart';
 import 'package:upsc_ca_ui/data/repositories/auth_repository.dart';
 import 'package:upsc_ca_ui/data/local/isar_service.dart';
 import 'package:upsc_ca_ui/data/services/profile_service.dart';
@@ -57,6 +58,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
+        ChangeNotifierProvider(create: (_) => InitializationProvider()),
       ],
       child: const MyApp(),
     ),
@@ -205,49 +207,18 @@ class ProfileWrapper extends StatefulWidget {
 
 class _ProfileWrapperState extends State<ProfileWrapper> {
   late final Future<dynamic> _profileFuture;
-  StreamSubscription? _syncSubscription;
-  double _syncProgress = 0.0;
-  String _syncStatus = "Checking profile...";
-  bool _isSyncing = false;
+  bool _resetCalled = false;
 
   @override
   void initState() {
     super.initState();
     _profileFuture = ProfileService().getProfile();
-    
-    // Listen to SyncManager events to show progress during subsequent logins
-    _syncSubscription = SyncManager().events.listen((event) async {
-      if (event.type == SyncEventType.progressUpdate) {
-        // FIX: Only show loading overlay if profile setup is actually complete
-        final isSetupComplete = await ProfileService().isProfileSetupComplete();
-        if (!isSetupComplete) return;
-
-        if (mounted) {
-          setState(() {
-            _isSyncing = true;
-            _syncProgress = event.progress ?? _syncProgress;
-            _syncStatus = event.status ?? _syncStatus;
-          });
-        }
-      } else if (event.type == SyncEventType.initialSyncComplete || 
-                 event.type == SyncEventType.userDataSyncComplete) {
-        if (mounted) {
-          setState(() {
-            _isSyncing = false;
-          });
-        }
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _syncSubscription?.cancel();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final initProvider = Provider.of<InitializationProvider>(context);
+
     return FutureBuilder(
       future: _profileFuture,
       builder: (context, profileSnapshot) {
@@ -262,18 +233,28 @@ class _ProfileWrapperState extends State<ProfileWrapper> {
 
         final hasProfile = profileSnapshot.data != null;
 
-        // If background sync starts, only overlay the Dashboard, never the Setup screen
-        if (_isSyncing && hasProfile) {
-          return ModernLoadingScreen(
-            progress: _syncProgress,
-            status: _syncStatus,
-            title: "SYNCHRONIZING DATA",
-          );
-        }
-        
         // If no profile found in Isar or Cloud, it's a first-time user
         if (!hasProfile) {
           return const ProfileSetupScreen();
+        }
+
+        // Always ensure initialization starts when ProfileWrapper is first shown with a profile
+        if (!_resetCalled) {
+          _resetCalled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            initProvider.reset();
+            initProvider.startInitialization(context);
+          });
+        }
+
+        // Show loading screen until initialization is complete
+        if (!initProvider.isInitialized) {
+          return ModernLoadingScreen(
+            progress: initProvider.progress,
+            status: initProvider.status,
+            title: "SYNCHRONIZING DATA",
+          );
         }
 
         return const DashboardScreen();

@@ -13,12 +13,15 @@ class SubscriptionService {
   /// 2. Active Paid Subscription
   /// 3. Free Trial Validity
   AccessLevel checkAccess(ProfileData? profile) {
-    if (profile == null) return AccessLevel.limited;
+    if (profile == null) {
+      AppLogger.d("AccessCheck: NULL Profile -> Access: LIMITED");
+      return AccessLevel.limited;
+    }
 
     final now = DateTime.now();
 
     // Debug logging
-    AppLogger.d("AccessCheck: ${profile.name} | TrialEnd: ${profile.trialEndDate} | SubEnd: ${profile.subscriptionEndDate}");
+    AppLogger.d("AccessCheck: ${profile.name} | TrialEnd: ${profile.trialEndDate} | SubEnd: ${profile.subscriptionEndDate} | isPremium: ${profile.isPremium} | manualPremium: ${profile.manualPremium}");
 
     // 1. Check manualPremium (Overwrites everything)
     if (profile.manualPremium) {
@@ -39,7 +42,7 @@ class SubscriptionService {
     }
 
     // 4. Default: Lock content
-    AppLogger.d("Access: LIMITED (Expired or No Access)");
+    AppLogger.d("Access: LIMITED (Expired or No Access). Current Time: $now");
     return AccessLevel.limited;
   }
 

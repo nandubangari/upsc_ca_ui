@@ -73,11 +73,16 @@ class SubscriptionProvider with ChangeNotifier {
     try {
       _profile = await _profileService.getProfile(forceCloudFetch: forceCloud);
       _accessLevel = _subscriptionService.checkAccess(_profile);
-      AppLogger.d("Subscription Status: $_accessLevel | Premium: $isPremium");
+      AppLogger.d("Subscription Status: $_accessLevel | Premium: $isPremium | TrialEnd: ${_profile?.trialEndDate}");
+
+      // Notify early if level changed to limited to trigger locking UI ASAP
+      if (_accessLevel == AccessLevel.limited) {
+        notifyListeners();
+      }
 
       // 🟢 FRESHNESS CHECK: If trial expired and we haven't validated recently
       if (_accessLevel == AccessLevel.limited && _shouldCheckFreshness(_profile)) {
-        unawaited(validateWithGooglePlay());
+        await validateWithGooglePlay(); // Await this during forced refresh
       }
     } catch (e) {
       AppLogger.e("Error refreshing subscription status", e);

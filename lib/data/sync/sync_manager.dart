@@ -42,7 +42,8 @@ class SyncManager with WidgetsBindingObserver {
   bool _isSyncingUserData = false;
   bool _isInitialSyncInProgress = false;
   bool _isIncrementalSyncInProgress = false;
-  bool _isCheckingStatus = false;
+  Completer<void>? _syncCompleter;
+  
   bool get isInitialSyncInProgress => _isInitialSyncInProgress;
 
   final _eventController = StreamController<SyncEvent>.broadcast();
@@ -62,7 +63,7 @@ class SyncManager with WidgetsBindingObserver {
       }
     });
 
-    // 2. Listen for profile setup completion (e.g. for existing users downloading profile from cloud)
+    // 2. Listen for profile setup completion
     ProfileService.onSetupComplete.listen((complete) {
       if (complete) {
         AppLogger.d("Profile setup complete detected. Triggering sync check...");
@@ -70,9 +71,8 @@ class SyncManager with WidgetsBindingObserver {
       }
     });
 
-    // 3. Defer connectivity listener and initial checks to avoid blocking startup frames
+    // 3. Defer connectivity listener and initial checks
     unawaited(Future.microtask(() async {
-      // Connectivity listener
       Connectivity().onConnectivityChanged.listen((results) {
         if (results.any((r) => r != ConnectivityResult.none)) {
           AppLogger.d("Internet restored. Triggering sync...");
@@ -89,7 +89,10 @@ class SyncManager with WidgetsBindingObserver {
 
   /// Public entry point to check and trigger all sync types based on readiness
   Future<void> checkSyncStatus() async {
-    if (_isCheckingStatus) return;
+    if (_syncCompleter != null && !_syncCompleter!.isCompleted) {
+      AppLogger.d("Sync: checkSyncStatus already in progress, awaiting existing future...");
+      return _syncCompleter!.future;
+    }
     
     final isReady = await ProfileService().isProfileSetupComplete();
     if (!isReady) {
@@ -97,15 +100,21 @@ class SyncManager with WidgetsBindingObserver {
       return;
     }
 
-    _isCheckingStatus = true;
+    _syncCompleter = Completer<void>();
+    AppLogger.d("Sync: Starting comprehensive status check...");
     try {
       await Future.wait([
         _checkInitialContentSync(),
         _checkIncrementalContentUpdate(),
         _syncUserData(),
       ]);
+      AppLogger.d("Sync: All status checks complete.");
+      if (!_syncCompleter!.isCompleted) _syncCompleter!.complete();
+    } catch (e, stack) {
+      AppLogger.e("Sync: Status check failed", e, stack);
+      if (!_syncCompleter!.isCompleted) _syncCompleter!.completeError(e);
     } finally {
-      _isCheckingStatus = false;
+      // We don't reset _syncCompleter to null immediately to allow latecomers to get the completed future
     }
   }
 
@@ -119,6 +128,7 @@ class SyncManager with WidgetsBindingObserver {
     }
 
     _isIncrementalSyncInProgress = true;
+    _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 0.05, status: "Checking for new content..."));
     
     try {
       final connectivityResults = await Connectivity().checkConnectivity();
@@ -134,6 +144,7 @@ class SyncManager with WidgetsBindingObserver {
 
       if (remoteTimestamp > localTimestamp) {
         AppLogger.d("Sync: New remote content detected ($remoteTimestamp > $localTimestamp). Starting incremental sync...");
+        _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 0.1, status: "Fetching latest articles..."));
         
         // Find which months need syncing. For simplicity, we sync the last 2 months if there's an update.
         final now = DateTime.now();
@@ -142,16 +153,21 @@ class SyncManager with WidgetsBindingObserver {
           DateTime(now.year, now.month - 1, 1),
         ];
 
-        for (var month in months) {
+        for (int i = 0; i < months.length; i++) {
+          final month = months[i];
+          final progress = 0.1 + (i / months.length) * 0.1;
+          _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: progress, status: "Updating content for ${_getMonthName(month.month)}..."));
           await _contentSync.syncContentForMonth(month.year, month.month);
         }
 
         // Update local timestamp
         await prefs.setInt('local_last_global_sync', remoteTimestamp);
         AppLogger.d("Sync: Incremental content sync complete. Broadcast triggered.");
+        _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 0.25, status: "Content updated!"));
         _eventController.add(SyncEvent(SyncEventType.initialSyncComplete)); // Reuse this event to trigger Dashboard reload
       } else {
         AppLogger.d("Sync: No new remote content detected ($remoteTimestamp <= $localTimestamp).");
+        _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 0.25, status: "Content is up to date"));
       }
     } catch (e) {
       AppLogger.e("Sync: Incremental content check failed", e);
@@ -202,11 +218,13 @@ class SyncManager with WidgetsBindingObserver {
       _isInitialSyncInProgress = false;
       _eventController.add(SyncEvent(SyncEventType.initialSyncComplete));
     } else {
-      AppLogger.d("Global library already fully synced. Skipping initial content sync.");
+      AppLogger.d("Global library already fully synced. Ensuring listeners are unblocked.");
+      // ALWAYS broadcast completion so DashboardProvider doesn't hang if localCount is 0 for some reason
+      _eventController.add(SyncEvent(SyncEventType.initialSyncComplete));
     }
   }
 
-  Future<void> _syncUserData({bool force = false}) async {
+  Future<void> _syncUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -217,17 +235,29 @@ class SyncManager with WidgetsBindingObserver {
 
     _isSyncingUserData = true;
     AppLogger.d("Sync: Pulling user data (progress, repetitions, custom tasks) on startup...");
+    _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 0.3, status: "Synchronizing your progress..."));
     
     try {
       // Parallel pull for all user collections
-      await Future.wait([
+      final tasks = [
         _profileSync.download('main'),
         _progressSync.downloadAll(),
         _repetitionSync.downloadAll(),
         _customTaskSync.downloadAll(),
-      ]);
+      ];
+
+      // We wrap them to report progress as they complete
+      int completedCount = 0;
+      final wrappedTasks = tasks.map((t) => t.then((_) {
+        completedCount++;
+        final progress = 0.3 + (completedCount / tasks.length) * 0.6; // 30% to 90%
+        _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: progress, status: "Syncing user data ($completedCount/${tasks.length})..."));
+      }));
+
+      await Future.wait(wrappedTasks);
       
       AppLogger.d("Sync: User data pull complete.");
+      _eventController.add(SyncEvent(SyncEventType.progressUpdate, progress: 1.0, status: "Synchronization complete!"));
       _eventController.add(SyncEvent(SyncEventType.userDataSyncComplete));
     } catch (e) {
       AppLogger.e("Sync: User data pull failed", e);
@@ -295,5 +325,14 @@ class SyncManager with WidgetsBindingObserver {
     for (var doc in dirty) {
       await service.sync(doc.originalDocId);
     }
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    if (month < 1 || month > 12) return month.toString();
+    return months[month - 1];
   }
 }

@@ -142,20 +142,28 @@ class IsarDashboardService {
       final task = taskMap[dateStr]!;
       
       bool isCompleted = false;
+      bool isInProgress = false;
       String? completedAt;
       final monthId = "${item.year}_${item.month}";
       try {
-        final dynamic progressVal;
-        if (item.type == 'article') {
-          progressVal = allProgress['completed']?[monthId]?[dateStr]?['articles']?[item.contentId];
-        } else {
-          progressVal = allProgress['completed']?[monthId]?[dateStr]?['quizzes']?[item.contentId];
-        }
+        // Try new flat structure first: completed -> dateStr
+        dynamic progressVal = allProgress['completed']?[dateStr]?['articles']?[item.contentId];
         
+        // Fallback to old nested structure for migration safety
+        progressVal ??= allProgress['completed']?[monthId]?[dateStr]?['articles']?[item.contentId];
+
         if (progressVal != null) {
           isCompleted = true;
           if (progressVal is String) {
             completedAt = progressVal;
+          }
+        } else {
+          // Check inProgress if not completed
+          dynamic inProgressVal = allProgress['inProgress']?[dateStr]?['articles']?[item.contentId];
+          inProgressVal ??= allProgress['inProgress']?[monthId]?[dateStr]?['articles']?[item.contentId];
+          
+          if (inProgressVal != null) {
+            isInProgress = true;
           }
         }
       } catch (_) {}
@@ -170,12 +178,23 @@ class IsarDashboardService {
           url: item.url,
           source: item.sourceId,
           isCompleted: isCompleted,
+          isInProgress: isInProgress,
           completedAt: completedAt,
           date: dateStr,
         ));
       } else {
         // Filter out quizzes from disabled sources
         if (quizSourcesPref[item.sourceId] == false) continue;
+
+        // Try new flat structure first for quizzes
+        dynamic progressVal = allProgress['completed']?[dateStr]?['quizzes']?[item.contentId];
+        // Fallback
+        progressVal ??= allProgress['completed']?[monthId]?[dateStr]?['quizzes']?[item.contentId];
+        
+        if (progressVal != null) {
+          isCompleted = true;
+          if (progressVal is String) completedAt = progressVal;
+        }
 
         task.quizzes.add(QuizModel(
           title: item.title,
@@ -221,7 +240,12 @@ class IsarDashboardService {
                 if (dt != null) {
                   final monthId = "${dt.year}_${dt.month.toString().padLeft(2, '0')}";
                   final contentId = art.url?.hashCode.toString() ?? art.title.hashCode.toString();
-                  final progressVal = allProgress['completed']?[monthId]?[dateStr]?['articles']?[contentId];
+                  
+                  // New Structure
+                  dynamic progressVal = allProgress['completed']?[dateStr]?['articles']?[contentId];
+                  // Fallback
+                  progressVal ??= allProgress['completed']?[monthId]?[dateStr]?['articles']?[contentId];
+
                   if (progressVal != null) {
                     isCompleted = true;
                     if (progressVal is String) completedAt = progressVal;

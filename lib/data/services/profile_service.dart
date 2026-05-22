@@ -75,7 +75,11 @@ class ProfileService {
   /// Fetches profile data from Isar (offline-first).
   /// Returns null if no profile exists, which triggers the ProfileSetupScreen.
   Future<ProfileData?> getProfile({bool forceCloudFetch = false}) async {
-    if (_cachedProfile != null && !forceCloudFetch) return _cachedProfile;
+    if (forceCloudFetch) {
+      _cachedProfile = null;
+    }
+    
+    if (_cachedProfile != null) return _cachedProfile;
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return null;
@@ -83,6 +87,7 @@ class ProfileService {
     final fullDocId = "${user.uid}_profile_main";
     
     if (forceCloudFetch) {
+      AppLogger.d("ProfileService: Forcing cloud fetch for profile...");
       await _profileSync.download('main', force: true);
     }
 

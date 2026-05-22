@@ -10,15 +10,13 @@ class ProgressSyncService extends FirestoreSyncService {
     required String date,
     required String articleId,
   }) async {
-    final documentId = "${year}_$monthId";
+    final documentId = monthId; // Use monthId (e.g. 2025_05) as the document ID
     final timestamp = "${DateTime.now().toUtc().toIso8601String().split('.')[0]}Z";
     final data = {
       "completed": {
-        monthId: {
-          date: {
-            "articles": {
-              articleId: timestamp
-            }
+        date: {
+          "articles": {
+            articleId: timestamp
           }
         }
       }
@@ -34,15 +32,13 @@ class ProgressSyncService extends FirestoreSyncService {
     required String date,
     required String articleId,
   }) async {
-    final documentId = "${year}_$monthId";
+    final documentId = monthId;
     final timestamp = "${DateTime.now().toUtc().toIso8601String().split('.')[0]}Z";
     final data = {
       "inProgress": {
-        monthId: {
-          date: {
-            "articles": {
-              articleId: timestamp
-            }
+        date: {
+          "articles": {
+            articleId: timestamp
           }
         }
       }
@@ -58,15 +54,13 @@ class ProgressSyncService extends FirestoreSyncService {
     required String date,
     required String quizId,
   }) async {
-    final documentId = "${year}_$monthId";
+    final documentId = monthId;
     final timestamp = "${DateTime.now().toUtc().toIso8601String().split('.')[0]}Z";
     final data = {
       "completed": {
-        monthId: {
-          date: {
-            "quizzes": {
-              quizId: timestamp
-            }
+        date: {
+          "quizzes": {
+            quizId: timestamp
           }
         }
       }

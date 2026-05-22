@@ -58,7 +58,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
     // Default start date is exactly 10 days ago at 00:00:00
     final now = DateTime.now();
-    _startDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 10));
+    final floorDate = DateTime(2025, 1, 1);
+    final tenDaysAgo = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 10));
+    
+    // Ensure default respects the floor
+    _startDate = tenDaysAgo.isBefore(floorDate) ? floorDate : tenDaysAgo;
 
     unawaited(_loadProfileData());
   }
@@ -117,14 +121,16 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           _joinedAt = activeData.joinedAt;
           
           final now = DateTime.now();
+          final floorDate = DateTime(2025, 1, 1);
           final tenDaysAgo = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 10));
 
           if (cloudData != null) {
-            // Cap start date at 10 days ago
-            _startDate = cloudData.startDate.isAfter(tenDaysAgo) ? tenDaysAgo : cloudData.startDate;
+            // Cap start date at 10 days ago and floor at Jan 01 2025
+            DateTime candidateDate = cloudData.startDate.isAfter(tenDaysAgo) ? tenDaysAgo : cloudData.startDate;
+            _startDate = candidateDate.isBefore(floorDate) ? floorDate : candidateDate;
           } else {
-            // For new users, force default to 10 days ago
-            _startDate = tenDaysAgo;
+            // For new users, force default to 10 days ago, respecting Jan 01 2025 floor
+            _startDate = tenDaysAgo.isBefore(floorDate) ? floorDate : tenDaysAgo;
           }
 
           _examDate = activeData.examDate;
@@ -300,7 +306,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           ModernDatePicker(
             label: 'PREPARATION START DATE (Max: 10 Days Ago)',
             selectedDate: _startDate,
-            firstDate: DateTime(2024, 1, 1),
+            firstDate: DateTime(2025, 1, 1),
             lastDate: DateTime.now().subtract(const Duration(days: 10)),
             onDateSelected: (date) => setState(() => _startDate = date),
           ),

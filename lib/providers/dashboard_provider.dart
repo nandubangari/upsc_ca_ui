@@ -521,6 +521,8 @@ class DashboardProvider with ChangeNotifier {
   Future<void> markArticleAsCompleted(DashboardTask task, ArticleModel article) async {
     if (article.isCompleted) return;
 
+    AppLogger.d("DashboardProvider: Marking article as completed: ${article.title} (${task.date})");
+
     final now = DateTime.now();
     final completedAt = now.toIso8601String();
 
@@ -553,8 +555,11 @@ class DashboardProvider with ChangeNotifier {
       
       notifyListeners();
 
+      AppLogger.d("DashboardProvider: Check article completion for ${task.date}. Done: ${updatedTask.articlesDone + updatedTask.quizzesDone} / Total: ${updatedTask.totalArticles + updatedTask.totalQuizzes}");
+
       // Check for day completion
       if (updatedTask.isFullyCompleted) {
+        AppLogger.d("DashboardProvider: Day fully completed after article! Triggering repetition for ${task.date}");
         await _recordRepetitionCompletion(task);
       }
     }
@@ -582,6 +587,8 @@ class DashboardProvider with ChangeNotifier {
   /// Marks a quiz as completed locally and in Firestore.
   Future<void> markQuizAsCompleted(DashboardTask task, QuizModel quiz) async {
     if (quiz.isCompleted) return;
+
+    AppLogger.d("DashboardProvider: Marking quiz as completed: ${quiz.title} (${task.date})");
 
     final now = DateTime.now();
     final completedAt = now.toIso8601String();
@@ -615,8 +622,11 @@ class DashboardProvider with ChangeNotifier {
       
       notifyListeners();
 
+      AppLogger.d("DashboardProvider: Check article completion for ${task.date}. Done: ${updatedTask.articlesDone + updatedTask.quizzesDone} / Total: ${updatedTask.totalArticles + updatedTask.totalQuizzes}");
+
       // Check for day completion
       if (updatedTask.isFullyCompleted) {
+        AppLogger.d("DashboardProvider: Day fully completed after article! Triggering repetition for ${task.date}");
         await _recordRepetitionCompletion(task);
       }
     }
@@ -630,7 +640,7 @@ class DashboardProvider with ChangeNotifier {
 
     try {
       await _repository.markQuizCompleted(
-        quiz.source,
+        quiz.source ?? "unknown",
         year,
         monthId,
         isoDate,
