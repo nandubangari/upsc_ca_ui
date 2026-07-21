@@ -21,7 +21,6 @@ A Flutter app that aggregates **UPSC Current Affairs** from multiple coaching so
 <p align="center">
   <img src="assets/screenshots/screenshot (1).webp" width="200" alt="Home Feed" />
   <img src="assets/screenshots/screenshot (2).webp" width="200" alt="Articles" />
-  <img src="assets/screenshots/screenshot (3).webp" width="278" alt="Article Reader" />
   <img src="assets/screenshots/screenshot (4).webp" width="253" alt="Article Reader" />
 </p>
 
