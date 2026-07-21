@@ -16,6 +16,15 @@ A Flutter app that aggregates **UPSC Current Affairs** from multiple coaching so
 - **Google Sign-In & cloud sync** — sign in and keep your progress/bookmarks synced via Firebase.
 - **In-app purchases** — supports a premium/subscription tier for additional features.
 
+- ## 📸 Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/screenshot (1).webp" width="200" alt="Home Feed" />
+  <img src="assets/screenshots/screenshot (2).webp" width="200" alt="Articles" />
+  <img src="assets/screenshots/screenshot (3).webp" width="200" alt="Article Reader" />
+  <img src="assets/screenshots/screenshot (4).webp" width="200" alt="Article Reader" />
+</p>
+
 ---
 
 ## 🛠️ Tech Stack
